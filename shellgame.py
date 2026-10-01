@@ -6,10 +6,9 @@ SHELL GAME: a terminal duel of nerve, odds and one very loud gun.
   python3 shellgame.py --offline   ignore AI settings; dealers use built-in strategies
 
 AI dealers (optional): open Settings from the main menu, pick a provider
-(Google Gemini, OpenAI, OpenRouter, Ollama or any OpenAI-compatible endpoint),
-paste an API key (stored in the macOS Keychain) and choose a model.
-Environment variables also work: GEMINI_API_KEY / GOOGLE_API_KEY,
-OPENAI_API_KEY, OPENROUTER_API_KEY.
+(Google Gemini or SleepyAI), paste an API key (stored in the macOS Keychain)
+and choose a model. Environment variables also work:
+GEMINI_API_KEY / GOOGLE_API_KEY, SLEEPYAI_API_KEY.
 
 Python 3.8+, standard library only. Terminal must be at least 100x30.
 Settings: ~/.shellgame_config.json    High scores: ~/.shellgame_scores.json
@@ -43,6 +42,7 @@ API_TIMEOUT = 25
 CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
 KEYCHAIN_SERVICE = "shellgame"
+USER_AGENT = "ShellGame/2.1 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 ITEMS = {
@@ -216,19 +216,16 @@ PROVIDERS = {
     "gemini": {"label": "Google Gemini", "short": "Gemini", "kind": "gemini",
                "base": "https://generativelanguage.googleapis.com/v1beta", "model": "gemini-3.8-flash",
                "env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"], "needs_key": True, "edit_base": False},
-    "openai": {"label": "OpenAI", "short": "OpenAI", "kind": "openai",
-               "base": "https://api.openai.com/v1", "model": "gpt-5.4-mini",
-               "env": ["OPENAI_API_KEY"], "needs_key": True, "edit_base": True},
-    "openrouter": {"label": "OpenRouter", "short": "OpenRouter", "kind": "openai",
-                   "base": "https://openrouter.ai/api/v1", "model": "openai/gpt-5.4-mini",
-                   "env": ["OPENROUTER_API_KEY"], "needs_key": True, "edit_base": True},
-    "ollama": {"label": "Ollama (local)", "short": "Ollama", "kind": "openai",
-               "base": "http://localhost:11434/v1", "model": "llama3.2",
-               "env": [], "needs_key": False, "edit_base": True},
-    "custom": {"label": "Custom OpenAI-compatible", "short": "Custom", "kind": "openai",
-               "base": "", "model": "", "env": [], "needs_key": False, "edit_base": True},
+    "sleepyai": {"label": "SleepyAI", "short": "SleepyAI", "kind": "openai",
+                 "base": "https://www.sleepyai.org/api/v1", "model": "",
+                 "env": ["SLEEPYAI_API_KEY"], "needs_key": True, "edit_base": True,
+                 "json_mode": False},  # response_format isn't documented by SleepyAI
 }
-PROVIDER_ORDER = ["off", "gemini", "openai", "openrouter", "ollama", "custom"]
+PROVIDER_ORDER = ["off", "gemini", "sleepyai"]
+
+FRIENDLY_HTTP = {401: "invalid or missing API key", 403: "model disabled or access denied",
+                 429: "rate or spending limit exceeded", 502: "upstream provider error",
+                 503: "model temporarily unavailable"}
 
 # ═════════════════════════════ art ═════════════════════════════
 _LETTERS = {
@@ -788,7 +785,7 @@ Items:
 You receive the game state as JSON. Choose exactly ONE next action; you will be asked again after each item.
 Only use items listed in "usable_items". Stay in character: your personality below decides your strategy.
 
-Reply with JSON only, no prose:
+Reply with a single JSON object only, no prose and no code fences:
 {"action": "use_item" | "shoot_self" | "shoot_opponent", "item": "<item or null>", "steal": "<item or null>", "taunt": "<one short in-character line, max 60 characters>"}"""
 
 
@@ -873,11 +870,33 @@ class ApiError(Exception):
         return f"HTTP {self.code}: {self.msg}" if self.code else self.msg
 
 
+def _parse_sse(raw):
+    """Collapse an OpenAI-style SSE stream into one chat.completion response."""
+    text = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            break
+        try:
+            chunk = json.loads(payload)
+        except ValueError:
+            continue
+        for ch in chunk.get("choices") or []:
+            part = ch.get("delta") or ch.get("message") or {}
+            if isinstance(part.get("content"), str):
+                text.append(part["content"])
+    return {"choices": [{"message": {"content": "".join(text)}}]}
+
+
 def http_json(url, body=None, headers=None, timeout=API_TIMEOUT):
+    hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    hdrs.update(headers or {})
     try:
         data = None if body is None else json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers=headers or {},
-                                     method="GET" if body is None else "POST")
+        req = urllib.request.Request(url, data=data, headers=hdrs, method="GET" if body is None else "POST")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
@@ -887,12 +906,17 @@ def http_json(url, body=None, headers=None, timeout=API_TIMEOUT):
             j = json.loads(detail)
             err = j.get("error") if isinstance(j, dict) else None
             if isinstance(err, dict):
-                msg = err.get("message") or msg
+                msg = err.get("message") or err.get("code") or msg
             elif isinstance(err, str):
                 msg = err
+            elif isinstance(j, dict) and j.get("message"):
+                msg = j["message"]
         except ValueError:
             pass
-        raise ApiError(e.code, " ".join(str(msg).split())[:160])
+        msg = " ".join(str(msg).split())[:140]
+        if e.code in FRIENDLY_HTTP:
+            msg = f"{FRIENDLY_HTTP[e.code]} ({msg})" if msg else FRIENDLY_HTTP[e.code]
+        raise ApiError(e.code, msg)
     except urllib.error.URLError as e:
         if isinstance(e.reason, ssl.SSLCertVerificationError):
             raise ApiError(0, "SSL certificates missing: run 'Install Certificates.command' for your Python")
@@ -906,6 +930,8 @@ def http_json(url, body=None, headers=None, timeout=API_TIMEOUT):
     try:
         return json.loads(raw)
     except ValueError:
+        if "data:" in raw:
+            return _parse_sse(raw)
         raise ApiError(0, "the server didn't return JSON")
 
 
@@ -962,10 +988,8 @@ def save_json(path, data):
 def detect_provider():
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         return "gemini"
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    if os.environ.get("OPENROUTER_API_KEY"):
-        return "openrouter"
+    if os.environ.get("SLEEPYAI_API_KEY"):
+        return "sleepyai"
     return "off"
 
 
@@ -996,7 +1020,7 @@ class Config:
 # ═════════════════════════════ AI brain ═════════════════════════════
 class Brain:
     SKIP_MODELS = ("embed", "tts", "whisper", "dall-e", "image", "audio", "realtime", "transcri",
-                   "moderation", "search", "sora", "davinci", "babbage")
+                   "moderation", "sora")
 
     def __init__(self, config, offline=False):
         self.config, self.offline = config, offline
@@ -1053,17 +1077,27 @@ class Brain:
             return "Key removed from the Keychain."
         return "Session key cleared."
 
-    def ready(self):
+    def missing(self):
         p = self.provider
-        if p == "off" or not self.base_url() or not self.model():
-            return False
-        return bool(self.key()[0]) or not self.needs_key()
+        out = []
+        if p == "off":
+            return out
+        if self.needs_key() and not self.key()[0]:
+            out.append("an API key")
+        if not self.base_url():
+            out.append("a base URL")
+        if not self.model():
+            out.append("a model")
+        return out
+
+    def ready(self):
+        return self.provider != "off" and not self.missing()
 
     def reset(self):
         self.enabled = self.ready()
         self.failures = 0
         self.gem_thinking = True
-        self.json_mode = True
+        self.json_mode = PROVIDERS[self.provider].get("json_mode", True)
 
     def short_label(self):
         return PROVIDERS[self.provider]["short"] if self.enabled else "built-in"
@@ -1073,10 +1107,11 @@ class Brain:
             return "AI: off (--offline). Dealers use their built-in strategies.", "dim"
         p = self.provider
         if p == "off":
-            return "AI: off. Dealers use built-in strategies. Open Settings to connect an AI.", "dim"
+            return "AI: off. Dealers use built-in strategies. Open Settings to connect Gemini or SleepyAI.", "dim"
         label = PROVIDERS[p]["label"]
-        if not self.ready():
-            return f"AI: {label} is selected but needs a key or model. Open Settings.", "item"
+        miss = self.missing()
+        if miss:
+            return f"AI: {label} needs {' and '.join(miss)}. Open Settings.", "item"
         return f"AI: {label} · {self.model()} · key: {self.key()[1]}", "hp"
 
     # ── requests
@@ -1084,14 +1119,13 @@ class Brain:
         p = self.provider
         kind = PROVIDERS[p]["kind"]
         key = self.key(p)[0]
-        timeout = 60 if p == "ollama" else API_TIMEOUT
         if kind == "gemini":
-            return self._gemini(system, user, think, key, timeout)
+            return self._gemini(system, user, think, key)
         if kind == "openai":
-            return self._openai(system, user, key, timeout)
+            return self._chat(system, user, key)
         raise ApiError(0, "no AI provider selected")
 
-    def _gemini(self, system, user, think, key, timeout):
+    def _gemini(self, system, user, think, key):
         gen = {"responseMimeType": "application/json"}
         if self.gem_thinking:
             gen["thinkingConfig"] = {"thinkingLevel": think}
@@ -1100,11 +1134,11 @@ class Brain:
                 "generationConfig": gen}
         url = f"{self.base_url()}/models/{self.model()}:generateContent"
         try:
-            resp = http_json(url, body, {"Content-Type": "application/json", "x-goog-api-key": key or ""}, timeout)
+            resp = http_json(url, body, {"Content-Type": "application/json", "x-goog-api-key": key or ""})
         except ApiError as e:
             if e.code == 400 and self.gem_thinking and "think" in e.msg.lower():
                 self.gem_thinking = False
-                return self._gemini(system, user, think, key, timeout)
+                return self._gemini(system, user, think, key)
             raise
         cands = resp.get("candidates") or []
         if not cands:
@@ -1112,21 +1146,22 @@ class Brain:
         parts = (cands[0].get("content") or {}).get("parts") or []
         return "".join(part.get("text", "") for part in parts if not part.get("thought"))
 
-    def _openai(self, system, user, key, timeout):
-        body = {"model": self.model(),
+    def _chat(self, system, user, key):
+        """OpenAI Chat Completions format, as used by SleepyAI."""
+        body = {"model": self.model(), "stream": False,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if self.json_mode:
             body["response_format"] = {"type": "json_object"}
-        headers = {"Content-Type": "application/json", "X-Title": "Shell Game"}
+        headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         try:
-            resp = http_json(f"{self.base_url()}/chat/completions", body, headers, timeout)
+            resp = http_json(f"{self.base_url()}/chat/completions", body, headers)
         except ApiError as e:
             low = e.msg.lower()
             if e.code in (400, 422) and self.json_mode and ("response_format" in low or "json" in low):
                 self.json_mode = False
-                return self._openai(system, user, key, timeout)
+                return self._chat(system, user, key)
             raise
         choices = resp.get("choices") or []
         if not choices:
@@ -1146,19 +1181,29 @@ class Brain:
                 if "generateContent" in (m.get("supportedGenerationMethods") or []):
                     name = m.get("name", "")
                     out.append(name.split("/", 1)[1] if name.startswith("models/") else name)
-        else:
-            headers = {"Authorization": f"Bearer {key}"} if key else {}
-            resp = http_json(f"{self.base_url()}/models", None, headers)
-            ids = [m.get("id") for m in resp.get("data", []) if isinstance(m, dict) and m.get("id")]
-            out = [x for x in ids if not any(s in x.lower() for s in self.SKIP_MODELS)] or ids
+            return sorted(set(out))
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        resp = http_json(f"{self.base_url()}/models", None, headers)
+        items = (resp.get("data") or resp.get("models") or []) if isinstance(resp, dict) else resp
+        ids = []
+        for m in items if isinstance(items, list) else []:
+            if isinstance(m, str):
+                ids.append(m)
+            elif isinstance(m, dict) and m.get("active", True) is not False:
+                mid = m.get("id") or m.get("model") or m.get("name") or m.get("slug")
+                if mid:
+                    ids.append(str(mid))
+        out = [x for x in ids if not any(s in x.lower() for s in self.SKIP_MODELS)] or ids
         return sorted(set(out))
 
     def test(self):
-        if not self.ready():
-            raise ApiError(0, "add an API key and a model first")
+        miss = self.missing()
+        if self.provider == "off":
+            raise ApiError(0, "pick a provider first")
+        if miss:
+            raise ApiError(0, f"add {' and '.join(miss)} first")
         t0 = time.time()
-        text = self.complete('Reply with the JSON object {"ok": true} and nothing else. This is JSON mode.',
-                             "ping", "low")
+        text = self.complete('Reply with the JSON object {"ok": true} and nothing else.', "ping", "low")
         if not isinstance(parse_json_obj(text), (dict, list)):
             raise ApiError(0, f"unexpected reply: {text[:60]!r}")
         return time.time() - t0
@@ -1219,7 +1264,7 @@ MENU = [
     ("hotseat", "Hot-seat", "Two players, one keyboard, best of three stages."),
     ("items", "Item guide", "What every item does and when to use it."),
     ("scores", "High scores", "Your best runs against each dealer."),
-    ("settings", "Settings", "Connect Gemini or an OpenAI-compatible AI to play the dealers."),
+    ("settings", "Settings", "Connect Gemini or SleepyAI to play the dealers."),
     ("help", "How to play", "The rules on one screen."),
     ("quit", "Quit", "Leave the table."),
 ]
@@ -2142,15 +2187,25 @@ class UI:
     def help_screen(self):
         if self.frame():
             self.box(1, 4, 27, 92, "HOW TO PLAY", self.col("item"), curses.A_BOLD | self.col("item"))
-            y = 2
-            for text, head in HELP_TEXT:
-                if head and y > 2:
-                    y += 0
-                self.put(y, 7, text, (self.col("item") | curses.A_BOLD) if head else 0)
-                y += 1
+            for k, (text, head) in enumerate(HELP_TEXT):
+                self.put(3 + k, 7, text, (self.col("item") | curses.A_BOLD) if head else 0)
             self.centered(29, "press any key", curses.A_DIM)
             self.scr.refresh()
         self.wait_key()
+
+    def _pick_model(self, brain, config):
+        res, err = self.run_with_spinner("Fetching models...", brain.list_models)
+        if err:
+            return f"Couldn't list models: {short_err(err)}", "live"
+        if not res:
+            return "The server returned no models.", "item"
+        m = self.select_list("CHOOSE A MODEL", res, brain.model())
+        if not m:
+            return "", "item"
+        config.data["models"][brain.provider] = m
+        config.save()
+        brain.reset()
+        return f"Model set to {m}.", "hp"
 
     def settings(self, brain, config):
         sel, note, note_ck = 0, "", "item"
@@ -2161,20 +2216,16 @@ class UI:
                      "Who plays the dealers. ←/→ or Enter to switch. 'Off' uses the built-in strategies.")]
             if p != "off":
                 key, src = brain.key()
-                if key:
-                    kv = f"{mask_key(key)}   ({src})"
-                elif not brain.needs_key():
-                    kv = "optional, not set"
-                else:
-                    kv = "not set: press Enter to paste one"
+                kv = f"{mask_key(key)}   ({src})" if key else "not set: press Enter to paste one"
                 eb = info.get("edit_base")
+                key_help = ("Enter to paste your SleepyAI key (sk-...) from the SleepyAI dashboard."
+                            if p == "sleepyai" else "Enter to paste your Gemini API key.")
                 rows += [
-                    ("API key", kv, "key",
-                     "Enter to paste a key. It's stored in the macOS Keychain (service 'shellgame'), never in a file."),
+                    ("API key", kv, "key", key_help + " Stored in the macOS Keychain, never in a file."),
                     ("Base URL", brain.base_url() or "(not set)", "base",
-                     "OpenAI-compatible endpoint, usually ending in /v1. Enter to edit; clear it to reset."
-                     if eb else "Fixed for Gemini. Pick an OpenAI-compatible provider to set your own URL."),
-                    ("Model", brain.model() or "(not set)", "model",
+                     f"Default {info.get('base')}. Enter to edit; clear it to reset."
+                     if eb else "Fixed for Gemini."),
+                    ("Model", brain.model() or "(not set: choose one below)", "model",
                      "Enter to type a model ID, or pick one from the list below."),
                     ("", "Choose model from list", "pick", "Fetches the models your key can use and lets you pick one."),
                     ("", "Test connection", "test", "Sends one tiny request to check the key, URL and model."),
@@ -2185,7 +2236,7 @@ class UI:
             sel = max(0, min(sel, len(rows) - 1))
             if self.frame():
                 self.centered(1, "SETTINGS", self.col("item") | curses.A_BOLD)
-                self.centered(2, "Connect an AI to play the dealers, or leave it off.", curses.A_DIM)
+                self.centered(2, "Connect Gemini or SleepyAI to play the dealers, or leave it off.", curses.A_DIM)
                 self.box(4, 10, len(rows) * 2 + 1, 80, "AI BRAIN", curses.A_DIM)
                 for k, (label, val, tok, _) in enumerate(rows):
                     y = 5 + k * 2
@@ -2236,16 +2287,20 @@ class UI:
                 if s:
                     note, note_ck = brain.set_key(s), "hp"
                     brain.reset()
+                    if not brain.model():
+                        n2, ck2 = self._pick_model(brain, config)
+                        if n2:
+                            note, note_ck = f"{note} {n2}", ck2
             elif tok == "base":
                 if not info.get("edit_base"):
-                    note, note_ck = "This provider's URL is fixed. Pick 'Custom' to use another endpoint.", "item"
+                    note, note_ck = "Gemini's URL is fixed.", "item"
                     continue
                 s = self.text_input("BASE URL", prefill=brain.base_url(), maxlen=200, width=64)
                 if s is not None:
                     config.data["base_urls"][p] = s.rstrip("/")
                     config.save()
                     brain.reset()
-                    note, note_ck = "Base URL saved.", "hp"
+                    note, note_ck = ("Base URL saved." if s else "Base URL reset to the default."), "hp"
             elif tok == "model":
                 s = self.text_input("MODEL ID", prefill=brain.model(), maxlen=120, width=64)
                 if s:
@@ -2254,18 +2309,9 @@ class UI:
                     brain.reset()
                     note, note_ck = f"Model set to {s}.", "hp"
             elif tok == "pick":
-                res, err = self.run_with_spinner("Fetching models...", brain.list_models)
-                if err:
-                    note, note_ck = f"Couldn't list models: {short_err(err)}", "live"
-                elif not res:
-                    note, note_ck = "The server returned no models.", "item"
-                else:
-                    m = self.select_list("CHOOSE A MODEL", res, brain.model())
-                    if m:
-                        config.data["models"][p] = m
-                        config.save()
-                        brain.reset()
-                        note, note_ck = f"Model set to {m}.", "hp"
+                n2, ck2 = self._pick_model(brain, config)
+                if n2:
+                    note, note_ck = n2, ck2
             elif tok == "test":
                 res, err = self.run_with_spinner("Testing the connection...", brain.test)
                 brain.reset()
