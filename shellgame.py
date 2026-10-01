@@ -50,7 +50,7 @@ CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
 STATS_FILE = os.path.expanduser("~/.shellgame_stats.json")
 KEYCHAIN_SERVICE = "shellgame"
-USER_AGENT = "ShellGame/3.5 (+terminal game)"
+USER_AGENT = "ShellGame/3.6 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 SOUND_DIR = "/System/Library/Sounds"
 SOUNDS = {"bang": "Basso", "click": "Tink", "load": "Pop", "item": "Morse", "win": "Hero",
@@ -98,6 +98,18 @@ EVENTS = {
                      f"Dither and the gun fires itself."},
     "blood": {"label": "Blood Moon", "icon": "☾",
               "desc": "Every hit on your opponent heals you 1 charge this load."},
+    "heavy": {"label": "Heavy Load", "icon": "≡",
+              "desc": "Two extra shells went into the gun this load: one live and one blank."},
+    "fog": {"label": "Fog", "icon": "░",
+            "desc": "Only the number of shells is known this load. The live/blank mix is hidden from everyone."},
+    "swap": {"label": "Swap Meet", "icon": "⇆",
+             "desc": "Each player handed the other a random item."},
+    "cold": {"label": "Cold Feet", "icon": "*",
+             "desc": "A blank at your own head no longer gives you an extra turn this load."},
+    "lastcall": {"label": "Last Call", "icon": "1",
+                 "desc": "Each player can use only one item this load. Make it count."},
+    "lucky": {"label": "Lucky Streak", "icon": "$",
+              "desc": "Your first blank at your own head this load earns you a random item."},
 }
 EVENT_KEYS = list(EVENTS)
 
@@ -380,6 +392,70 @@ DEALERS = {
         "lines": ["Would I lie to you?", "Trust me. Everyone does.", "I never bluff. Well. Rarely.",
                   "Such an honest face, isn't it?", "You look nervous. Good."],
     },
+    "magician": {
+        "name": "The Magician", "tier": "TRICKY", "color": "item",
+        "tagline": "Now you see it. Now you don't. He always knows which.",
+        "bio": "A showman in a star-spangled hat. Once a load he passes his hands over the gun, and "
+               "whatever you thought you knew about the next two shells is gone.",
+        "style": ["Wipes your reads, then plays on what he saw",
+                  "Shuffles, slips and flips the gun",
+                  "Gives rigged gifts and rewinds live shells"],
+        "house_rule": "SLEIGHT OF HAND: on his first turn each load he may swap the next two shells, "
+                      "wiping your reads.",
+        "tell_desc": "Pure noise. Right only half the time.",
+        "tells": {"acc": 0.5, "sweat": "*he fans the cards, a little too fast*",
+                  "smug": "*he pulls a coin from behind his ear*"},
+        "tilt": {"line": "His hands shake. No more tricks until he calms down.",
+                 "prompt": "You are TILTED after two hits in a row: your hands shake and you can't perform "
+                           "your sleight of hand. Play it straight."},
+        "pool": {"shuffle": 3, "slip": 3, "flipper": 3, "decoy": 3, "snapshot": 2, "hook": 2, "rewind": 2,
+                 "radio": 2},
+        "rules": {"hp": [2, 4, 5], "you_items": [2, 2, 3], "dealer_items": [2, 3, 4],
+                  "counter": True, "mult": 1.75, "think": "low"},
+        "head": ["     .-*-*-.", "    _|_____|_"],
+        "eyes": {"idle": "(o) (~)", "hurt": "(x) (~)", "grin": "(^) (~)", "think": "(-) (~)", "dead": "(+) (+)"},
+        "mouth": {"idle": " ~\\___/~ ", "hurt": "   ~~~   ", "grin": " ~\\___/~ ", "think": "   -~-   ",
+                  "dead": "   ___   "},
+        "prompt": "You are THE MAGICIAN: a theatrical showman who lives on misdirection. Once per load, "
+                  "before you act, the game performs your SLEIGHT OF HAND automatically: the next two shells "
+                  "may have been swapped, your opponent's knowledge of them is wiped, and you now know both "
+                  "(they appear in your known shells). Strategy: exploit that knowledge. Shoot your opponent "
+                  "on a known live shell, yourself on a known blank, or flip a known blank to live and shoot "
+                  "them. Shuffle the gun right after your opponent peeks, slip live shells into the chamber, "
+                  "give rigged decoys and rewind live shells. Taunts: stage patter (abracadabra, pick a card, "
+                  "the hand is quicker than the eye).",
+        "lines": ["Pick a shell. Any shell.", "Nothing up my sleeve.", "The hand is quicker than the eye.",
+                  "And for my next trick...", "Abracadabra."],
+    },
+    "twins": {
+        "name": "The Twins", "tier": "HARD", "color": "dealer", "locked": True,
+        "unlock": "Two dealers, one seat, one set of charges. They only play those who have beaten the house. "
+                  "Beat the Croupier in a duel, or clear his stage in the Gauntlet, to unlock them.",
+        "tagline": "Vera counts every shell. Vex flips a coin. They swap seats every turn.",
+        "bio": "Vera keeps the ledger and Vex spends it. They share one set of charges and swap seats "
+               "after every turn, so you never face the same player twice in a row.",
+        "style": ["Vera plays like the Accountant: careful",
+                  "Vex plays like the Gambler: reckless",
+                  "Hit them twice in a row and they bicker"],
+        "house_rule": "SEAT SWAP: one set of charges, and they swap seats after every turn. Two hits in a "
+                      "row and they bicker.",
+        "tell_desc": "Vera's are honest (80%). Vex's lie (right only 25%).",
+        "tells": None,
+        "tilt": None,
+        "pool": {},  # filled in below: the Accountant's and the Gambler's pools together
+        "carries": "Everything the Accountant and the Gambler carry, in one shared hand.",
+        "rules": {"hp": [3, 4, 5], "you_items": [2, 3, 3], "dealer_items": [2, 3, 3],
+                  "counter": True, "mult": 2.0, "think": "low"},
+        "head": ["     .~~^^^^", "    (___/___\\"],
+        "eyes": GENERIC_EYES,
+        "mouth": GENERIC_MOUTH,
+        "prompt": "",
+        "bicker_prompt": "You and your twin are BICKERING after two hits in a row: your sibling has been "
+                         "blamed and sent away from the seat, and you are covering for them, taking every "
+                         "turn until you land a hit on your opponent.",
+        "lines": ["Our turn. Well, mine.", "Two of us. One of you.", "Don't look at me, look at the gun.",
+                  "Same face, different odds.", "Sit tight, it's my seat now."],
+    },
     "croupier": {
         "name": "The Croupier", "tier": "HARD · BOSS", "color": "live", "locked": True,
         "tagline": "The house itself. Cold, precise, almost never wrong.",
@@ -388,6 +464,8 @@ DEALERS = {
         "style": ["Plays the odds almost perfectly",
                   "Chains items: Loupe, then Saw or Double on live",
                   "Shell counter is switched off at his table"],
+        "unlock": "The house dealer only sits down for players who have proven themselves. "
+                  "Beat any dealer in a 3-stage duel, or clear stage 3 of the Gauntlet, to unlock him.",
         "house_rule": "HOUSE EDGE: he sees the first shell of every load. He never tilts.",
         "tell_desc": "None. The house has no tells.",
         "tells": None,
@@ -428,7 +506,38 @@ DEALERS = {
         "lines": ["Your move.", "The odds don't care.", "Steady hands.", "Next shell.", "Again."],
     },
 }
-DEALER_ORDER = ["accountant", "gambler", "liar", "croupier"]
+DEALER_ORDER = ["accountant", "gambler", "liar", "magician", "twins", "croupier"]
+DEALERS["twins"]["pool"] = dict(Counter(DEALERS["accountant"]["pool"]) + Counter(DEALERS["gambler"]["pool"]))
+
+# The Twins share one seat: whoever sits in it overrides these fields of DEALERS["twins"] (see Game.look).
+TWINS = {
+    "vera": {
+        "name": "Vera", "strategy": "accountant", "pron": "she", "refl": "herself",
+        "tells": {"acc": 0.8, "sweat": "*Vera's pen stops over the ledger*",
+                  "smug": "*Vera straightens her cuffs, satisfied*"},
+        "head": ["     .~~~~~.", "    (_______)"],
+        "eyes": {"idle": "(o) (o)", "hurt": "(x) (x)", "grin": "(^) (^)", "think": "(-) (o)", "dead": "(+) (+)"},
+        "prompt": "You are VERA, one of THE TWINS. You share one set of charges with your reckless brother "
+                  "Vex and swap seats with him after every turn. You are meticulous and risk-averse: if the "
+                  "chambered shell is unknown, gather information first (loupe, tarot, radio, snapshot), wear "
+                  "a vest, heal at once, shoot your opponent only when live is 50% or more likely and "
+                  "yourself only when it is 30% or less. Taunts: cool, precise, a little exasperated with Vex.",
+        "lines": ["Let me do this properly.", "Vex would have shot already.", "Count twice, shoot once."],
+    },
+    "vex": {
+        "name": "Vex", "strategy": "gambler", "pron": "he", "refl": "himself",
+        "tells": {"acc": 0.25, "sweat": "*Vex grins, a little too wide*",
+                  "smug": "*Vex drums his fingers on the barrel*"},
+        "head": ["     ^^^^^^^", "    /_______\\"],
+        "eyes": {"idle": "(o) (O)", "hurt": "(x) (X)", "grin": "(*) (*)", "think": "(o) (-)", "dead": "(x) (x)"},
+        "prompt": "You are VEX, one of THE TWINS. You share one set of charges with your careful sister "
+                  "Vera and swap seats with her after every turn. You are reckless and flashy: when the "
+                  "chance of live is 50% or less shoot YOURSELF for the extra turn, otherwise shoot your "
+                  "opponent; saw and double on hunches, take pills and roll dice when hurt. Taunts: cocky "
+                  "casino slang, with jabs at your overcautious sister.",
+        "lines": ["Vera's too slow. Watch this.", "Let it ride!", "Coin says you're done."],
+    },
+}
 
 LIAR_SAYS_LIVE = ["Psst. That next shell? Live. Point it at me... if you dare.",
                   "Between us: it's a live one. Careful where you aim.",
@@ -458,9 +567,13 @@ ACHIEVEMENTS = [
          lambda g, r, d, won: _beat(d, "liar")),
     _ach("break_bank", "Breaking the Bank", "Beat the Croupier in a duel.",
          lambda g, r, d, won: _beat(d, "croupier")),
-    _ach("full_house", "Full House", "Beat all four dealers in duels.",
+    _ach("trick_treat", "Trick or Treat", "Beat the Magician in a duel.",
+         lambda g, r, d, won: _beat(d, "magician")),
+    _ach("seeing_double", "Seeing Double", "Beat the Twins in a duel.",
+         lambda g, r, d, won: _beat(d, "twins")),
+    _ach("full_house", "Full House", f"Beat all {len(DEALER_ORDER)} dealers in duels.",
          lambda g, r, d, won: all(_beat(d, k) for k in DEALER_ORDER),
-         lambda d: f"{sum(_beat(d, k) for k in DEALER_ORDER)}/4 dealers beaten"),
+         lambda d: f"{sum(_beat(d, k) for k in DEALER_ORDER)}/{len(DEALER_ORDER)} dealers beaten"),
     _ach("old_school", "Old School", "Win a Classic duel against the Dealer.",
          lambda g, r, d, won: won and g.classic and g.vs_ai),
     _ach("daily_grind", "Daily Grind", "Win a Daily challenge.",
@@ -500,6 +613,11 @@ ACHIEVEMENTS = [
          lambda g, r, d, won: bool(r["pact_win"])),
     _ach("last_man", "Last Man Standing", "Win a stage that went to sudden death.",
          lambda g, r, d, won: bool(r["sudden_win"])),
+    _ach("storm_chaser", "Storm Chaser", f"See all {len(EVENT_KEYS)} table events.",
+         lambda g, r, d, won: all(d["events"].get(k) for k in EVENT_KEYS),
+         lambda d: f"{sum(1 for k in EVENT_KEYS if d['events'].get(k))}/{len(EVENT_KEYS)} events seen"),
+    _ach("fog_of_war", "Fog of War", "Win a stage played under Fog.",
+         lambda g, r, d, won: bool(r["fog_win"])),
     _ach("dud", "Dud", "Survive a live shell to your own head thanks to a misfire.",
          lambda g, r, d, won: bool(r["misfire_saved"])),
     _ach("clean_audit", "Clean Audit", "Get audited by the Accountant and still win the stage.",
@@ -528,7 +646,8 @@ class Career:
     def __init__(self, path=STATS_FILE):
         self.path = path
         d = load_json(path) if path else {}
-        for k, t in (("modes", dict), ("dealers", dict), ("totals", dict), ("items", dict), ("achievements", dict)):
+        for k, t in (("modes", dict), ("dealers", dict), ("totals", dict), ("items", dict), ("achievements", dict),
+                     ("events", dict)):
             if not isinstance(d.get(k), t):
                 d[k] = t()
         for k in ("runs", "wins", "best_score", "best_gauntlet", "hotseat"):
@@ -564,6 +683,8 @@ class Career:
         for k, v in r.items():
             if k.startswith("item:"):
                 d["items"][k[5:]] = d["items"].get(k[5:], 0) + v
+            elif k.startswith("ev:"):
+                d["events"][k[3:]] = d["events"].get(k[3:], 0) + v
         d["best_score"] = max(d["best_score"], r["peak_score"], g.score)
         if g.mode == "gauntlet":
             d["best_gauntlet"] = max(d["best_gauntlet"], r["stages_won"])
@@ -733,6 +854,9 @@ class Game:
         self.run = Counter()   # career stats for this run (your side only)
         self.stg = Counter()   # the same, for the current stage
         self.stage_closed = False
+        self.twin = None       # which Twin is in the seat ("vera"/"vex"), None at other tables
+        self.load_uses = {0: 0, 1: 0}
+        self.lucky_paid = set()
         self._reset_mind()
 
     def _reset_mind(self):
@@ -745,10 +869,26 @@ class Game:
         self.uses = 0
         self.blind = 0
         self.coin_used = False
+        self.bicker = None       # the Twin covering for the blamed one, while they bicker
+        self.bicker_since = 0
+        self.dealer_turns = 0    # dealer turns finished this stage (the Twins swap after each)
+        self.trick_load = 0      # the load the Magician last tried his sleight of hand in
+        self.sleight = None      # (load, position) the sleight flag is shown for
 
     @property
     def dealer(self):
         return DEALERS.get(self.dealer_key) if self.dealer_key else None
+
+    @property
+    def look(self):
+        """The dealer as he plays right now: at the Twins' table, whoever is in the seat."""
+        d = self.dealer
+        return dict(d, **TWINS[self.twin]) if d and self.twin else d
+
+    def seat(self, twin):
+        self.twin = twin
+        self.players[1].name = TWINS[twin]["name"]
+        self.tell, self.tell_key = None, None  # a new face in the seat, a new tell
 
     @property
     def rules(self):
@@ -783,7 +923,7 @@ class Game:
         return " [" + ", ".join(MUTATORS[m]["label"] for m in sorted(self.mutators)) + "]"
 
     def counter_on(self, viewer=None):
-        if self.blind or "dark" in self.mutators:
+        if self.blind or "dark" in self.mutators or self.event == "fog":
             return False
         if viewer == 0 and self.perks.get("counter"):
             return True
@@ -817,7 +957,7 @@ class Game:
     def refl(self, p):
         if p.name == "You":
             return "yourself"
-        return "himself" if p.is_ai else "themselves"
+        return self.look.get("refl", "himself") if p.is_ai else "themselves"
 
     # ── basics
     def cur(self):
@@ -850,11 +990,25 @@ class Game:
         ev, self.fx = self.fx, []
         return ev
 
+    def _fog_odds(self, i):
+        """Under Fog nobody knows the mix: only a Tarot reading covering the chamber says anything."""
+        p = self.players[i]
+        for h in p.hints:
+            if h[0] <= self.pos < h[1]:
+                kn = [p.known[k] for k in range(h[0], h[1]) if k in p.known]
+                unk = h[1] - h[0] - len(kn)
+                if unk > 0:
+                    return (h[2] - sum(kn)) / unk
+        return 0.5
+
     def effective_current(self, i):
         """What player i knows or can deduce about the chambered shell."""
         p = self.players[i]
         if self.pos in p.known:
             return p.known[self.pos]
+        if self.event == "fog":
+            odds = self._fog_odds(i)
+            return {0.0: False, 1.0: True}.get(odds)
         rem = self.shells[self.pos:]
         kn = [v for k, v in p.known.items() if k > self.pos]
         unk = len(rem) - len(kn)
@@ -871,6 +1025,8 @@ class Game:
         cur = self.effective_current(i)
         if cur is not None:
             return 1.0 if cur else 0.0
+        if self.event == "fog":
+            return self._fog_odds(i)
         p = self.players[i]
         rem = self.shells[self.pos:]
         kn = [v for k, v in p.known.items() if k > self.pos]
@@ -883,6 +1039,9 @@ class Game:
         if self.mode == "gauntlet":
             self.dealer_key = DEALER_ORDER[(self.stage - 1) % len(DEALER_ORDER)]
             self.players[1].name = self.dealer["name"]
+        self.twin = None
+        if self.dealer_key == "twins":
+            self.seat("vera")
         hp = self._scaled("hp", 6)
         for p in self.players:
             p.hp = p.max_hp = hp
@@ -933,6 +1092,8 @@ class Game:
             self.run["audit_win"] = 1
         if self.stg["sudden"]:
             self.run["sudden_win"] = 1
+        if self.stg["fog"]:
+            self.run["fog_win"] = 1
 
     def _rng(self):
         """Daily runs derive every load from the date, so everyone gets the same gun and draws."""
@@ -952,6 +1113,8 @@ class Game:
         lo, hi = {1: (2, 4), 2: (3, 6)}.get(self.stage, (4, 8))
         n = rng.randint(lo, hi)
         live = rng.randint(max(1, n // 2 - 1), min(n - 1, (n + 1) // 2 + 1))
+        if self.event == "heavy":
+            n, live = n + 2, live + 1
         self.shells = [True] * live + [False] * (n - live)
         rng.shuffle(self.shells)
         if self.event == "hot" and not self.shells[-1]:
@@ -959,14 +1122,23 @@ class Game:
             self.shells[j], self.shells[-1] = self.shells[-1], self.shells[j]
         self.pos, self.spent, self.loaded = 0, [], (live, n - live)
         self.sawed = False
+        self.load_uses = {0: 0, 1: 0}
+        self.lucky_paid = set()
         for p in self.players:
             p.known, p.hints, p.peeked = {}, [], False
             if self.event == "hot":
                 p.known[len(self.shells) - 1] = True
-        self.add_log(f"The gun is loaded: {live} live, {n - live} blank.", "info")
+        if self.event == "fog":
+            self.add_log(f"The gun is loaded: {n} shells. The mix is hidden in the fog.", "info")
+        else:
+            self.add_log(f"The gun is loaded: {live} live, {n - live} blank.", "info")
         if self.event:
             e = EVENTS[self.event]
             self.add_log(f"TABLE EVENT {e['icon']} {e['label']}: {e['desc']}", "title")
+            if self.vs_ai:
+                self.run["ev:" + self.event] = 1
+                if self.event == "fog":
+                    self.stg["fog"] = 1
         if self.vs_ai and (self.dealer_key == "croupier" or "peek" in self.mutators):
             self.players[1].known[0] = self.shells[0]
             self.add_log(f"{self.players[1].name} glances at the first shell.", "dealer")
@@ -1010,7 +1182,22 @@ class Game:
                 got.append(ITEMS[it]["label"])
             if got:
                 self.add_log(f"{p.name} {self.v(p, 'draw')}: {', '.join(got)}.", "item")
+        self._swap_meet(rng)
         return ev
+
+    def _swap_meet(self, rng=random):
+        """Swap Meet: each player hands the other a random item (if they have one and there's room)."""
+        if self.event != "swap":
+            return
+        a, b = self.players
+        gifts = [(p, o, rng.choice(p.items)) for p, o in ((a, b), (b, a)) if p.items]
+        if len(gifts) == 1 and len(gifts[0][1].items) >= MAX_ITEMS:
+            gifts = []  # a one-way gift needs room; a two-way swap keeps both hands the same size
+        for p, o, it in gifts:
+            p.items.remove(it)
+            o.items.append(it)
+            self.add_log(f"Swap meet: {p.name} {self.v(p, 'hand')} {self.obj(o)} a {ITEMS[base(it)]['label']}.",
+                         "item")
 
     # ── draft
     def draft_next(self):
@@ -1038,6 +1225,7 @@ class Game:
             self.add_log(f"{len(self.draft_pool)} unpicked item(s) go back in the box.", "info")
         self.draft_pool = None
         self.draft_quota = {}
+        self._swap_meet()
 
     def ai_draft_index(self, i):
         d = self.dealer
@@ -1064,7 +1252,7 @@ class Game:
     # ── dealer psychology
     def update_tell(self):
         """Roll a new tell whenever the chambered shell changes. Returns True if a new tell appeared."""
-        d = self.dealer
+        d = self.look
         if not (self.vs_ai and d and d.get("tells")) or self.left() <= 0 or self.blind:
             self.tell = None
             return False
@@ -1134,6 +1322,33 @@ class Game:
                      "No items, no counter.", "dealer")
         return [("highroller",)]
 
+    def try_sleight(self):
+        """The Magician's first turn of each load: a coin flip swaps the next two shells.
+        Your reads of both are wiped; he handles both, so he knows both either way."""
+        if self.dealer_key != "magician" or self.trick_load == self.loads:
+            return []
+        self.trick_load = self.loads  # one attempt per load, even when he can't do it
+        if self.tilted or self.left() < 2:
+            return []
+        a, b = self.pos, self.pos + 1
+        swapped = random.random() < 0.5
+        if swapped:
+            self.shells[a], self.shells[b] = self.shells[b], self.shells[a]
+        you, mag = self.players
+        you.known.pop(a, None)
+        you.known.pop(b, None)
+        you.hints = [h for h in you.hints if h[1] <= a or h[0] > b]
+        mag.known[a], mag.known[b] = self.shells[a], self.shells[b]
+        for h in mag.hints:
+            h[2] = sum(self.shells[h[0]:h[1]])
+        self.sleight = (self.loads, a)
+        self.add_log("SLEIGHT OF HAND! The Magician passes his hands over the gun. "
+                     "Did he swap the next two shells? Your reads of both are gone.", "dealer")
+        return [("sleight",)]
+
+    def other_twin(self):
+        return "vex" if self.twin == "vera" else "vera"
+
     # ── shell bookkeeping
     def _advance(self):
         """Take the chambered shell out of the gun (fired or racked)."""
@@ -1179,6 +1394,14 @@ class Game:
         tilt = (self.dealer or {}).get("tilt")
         if self.vs_ai and ti == 1 and dealt > 0 and self.stage_winner is None:
             self.dealer_hits += 1
+            if self.dealer_hits >= 2 and self.twin and not self.bicker:
+                blamed = self.players[1].name
+                self.bicker, self.bicker_since = self.other_twin(), self.dealer_turns
+                if self.turn == 0:  # mid-turn the blamed twin finishes it; otherwise they leave now
+                    self.seat(self.bicker)
+                self.add_log(f"The Twins BICKER. {blamed} takes the blame; "
+                             f"{TWINS[self.bicker]['name']} plays until they land a hit.", "dealer")
+                self.fx.append(("bicker", blamed))
             if self.dealer_hits >= 2 and tilt and not self.tilted:
                 self.tilted = True
                 self.run["tilts"] += 1
@@ -1256,6 +1479,8 @@ class Game:
     def items_blocked(self, i):
         if self.event == "dry":
             return "Dry table: no items until the next reload."
+        if self.event == "lastcall" and self.load_uses[i] >= 1:
+            return "Last call: one item per load, and it's been used."
         if self.blind:
             return "High-roller round: no items until the blind shots are fired."
         if self.players[i].muzzled:
@@ -1327,6 +1552,7 @@ class Game:
             if arg is None:
                 return False, "Pick something to break.", []
         p.items.remove(entry)
+        self.load_uses[i] += 1
         if i == 0 and self.vs_ai:
             self.stg["items"] += 1
             if not entry.startswith("trap:"):
@@ -1468,7 +1694,7 @@ class Game:
             p.known[ins] = live
             lv, bl = self.loaded
             self.loaded = (lv + int(live), bl + int(not live))
-            whom = "you know" if P == "You" else ("he knows" if p.is_ai else f"{P} knows")
+            whom = "you know" if P == "You" else (self.look.get("pron", "he") + " knows" if p.is_ai else f"{P} knows")
             self.add_log(f"{P} {self.v(p, 'slip')} a {'LIVE' if live else 'BLANK'} shell into the gun. "
                          f"Only {whom} where.", "live" if live else "blank")
             ev.append(("minor",))
@@ -1619,12 +1845,17 @@ class Game:
                         self.run["ricochet_finish"] = 1
                     if self.vs_ai and i == 1 and ti == 0 and dealt > 0:
                         self.dealer_hits = 0
+                        if self.bicker:
+                            self.bicker = None
+                            self.add_log("The Twins make up. The seat swap resumes.", "dealer")
+                            self.fx.append(("calm",))
                         if self.tilted:
                             self.tilted = False
                             self.add_log(f"{p.name} {self.v(p, 'regain')} his composure.", "dealer")
                             self.fx.append(("calm",))
             else:
-                self.add_log("Click. Blank." + (" Extra turn." if at_self and shots == 1 else ""), "blank")
+                extra = at_self and shots == 1 and self.event != "cold"
+                self.add_log("Click. Blank." + (" Extra turn." if extra else ""), "blank")
                 if human and at_self:
                     self.award(150)
             results.append(r)
@@ -1638,6 +1869,14 @@ class Game:
                 self.stg["blank_streak"] = 0
             if len(results) == 2 and ti == 1 and all(r["dmg"] > 0 for r in results):
                 self.run["double_tap"] = 1
+        if (self.event == "lucky" and at_self and results and not fired_live and i not in self.lucky_paid
+                and self.stage_winner is None):
+            self.lucky_paid.add(i)
+            if len(p.items) < MAX_ITEMS:
+                src = self.dealer["pool"] if (self.vs_ai and i == 1) else self.base_pool
+                it = random.choices(list(src), weights=list(src.values()))[0]
+                p.items.append(it)
+                self.add_log(f"Lucky streak! {p.name} {self.v(p, 'win')} a {ITEMS[it]['label']}.", "item")
         self.sawed = False
         p.leech = False
         if self.blind:
@@ -1648,7 +1887,7 @@ class Game:
         if self.stage_winner is not None:
             return ev
         ev += self.check_sudden()
-        if not (at_self and not fired_live):
+        if not (at_self and not fired_live) or self.event == "cold":
             self.pass_turn()
         if self.left() <= 0:
             self.needs_reload = True
@@ -1658,6 +1897,10 @@ class Game:
     def pass_turn(self):
         self.uses = 0
         self.players[self.turn].muzzled = False
+        if self.turn == 1 and self.vs_ai:
+            self.dealer_turns += 1
+            if self.twin:
+                self.seat(self.bicker or self.other_twin())
         nxt = self.players[1 - self.turn]
         if nxt.shackled:
             nxt.shackled = False
@@ -1843,8 +2086,25 @@ def strat_liar(g, i, c):
     return _me()
 
 
+def strat_magician(g, i, c):
+    L, cur, pl, o, n = c["L"], c["cur"], c["pl"], c["o"], c["n"]
+    if cur is None:
+        if "radio" in L and n > 2 and random.random() < 0.5:
+            return _use("radio")
+        if "flipper" in L and pl <= 0.3:
+            return _use("flipper")
+        return _opp() if pl >= 0.5 else _me()
+    if cur:
+        if "hook" in L and "saw" in c["st"] and o.hp > 1:
+            return _use("hook", "saw")
+        return _opp()
+    if "flipper" in L and random.random() < 0.5:  # the classic trick: a known blank becomes a live one
+        return _use("flipper")
+    return _me()
+
+
 STRATEGIES = {"accountant": strat_accountant, "gambler": strat_gambler,
-              "liar": strat_liar, "croupier": strat_croupier}
+              "liar": strat_liar, "magician": strat_magician, "croupier": strat_croupier}
 
 
 def dealer_decision(g, i, allow_items=True):
@@ -1852,7 +2112,7 @@ def dealer_decision(g, i, allow_items=True):
     c = {"L": legal, "st": [base(x) for x in g.stealable(i)] if "hook" in legal else [],
          "cur": g.effective_current(i), "pl": g.chance_live(i),
          "p": g.players[i], "o": g.players[1 - i], "n": g.left()}
-    key = g.dealer_key
+    key = (g.look or {}).get("strategy", g.dealer_key)
     reckless = key == "gambler"
     if g.tilted:  # tilt flips the cautious and the reckless
         if key == "accountant":
@@ -1883,7 +2143,10 @@ PROMPT_EXTRA_RULES = """- Misfires: when "misfire_chance" is above 0, any live s
 - Table events: "table_event" in the state changes the rules until the next reload:
   blackout (no remaining-shell counter), stakes (+1 damage per live shell), generous (extra items),
   dry (no items can be used), hot (the last shell is live), rush (a clock on the human; ignore it),
-  blood (every hit on the opponent heals the shooter 1).
+  blood (every hit on the opponent heals the shooter 1), heavy (one extra live and one extra blank were loaded),
+  fog (the live/blank mix is hidden from everyone; only the total is known), swap (items were swapped),
+  cold (a blank at yourself does NOT give an extra turn), lastcall (only one item per player this load),
+  lucky (your first blank at yourself this load wins you a random item).
 - A high-roller round ("blind_shots_remaining" above 0) means nobody can use items until those shots are fired.
 - Run mutators ("mutators" in the state): noheal (no healing at all), peek (you see the first shell of
   every load), dark (no counter), glass (+1 damage per live shell), pockets (your opponent draws fewer items)."""
@@ -1926,7 +2189,7 @@ Reply with a single JSON object only, no prose and no code fences:
 
 
 def build_system_prompt(g):
-    d = g.dealer
+    d = g.look
     keys = CLASSIC_KEYS if g.classic else ITEM_KEYS
     rules = PROMPT_CORE_RULES + ("" if g.classic else "\n" + PROMPT_EXTRA_RULES)
     items = "\n".join(f"- {k}: {PROMPT_ITEMS[k]}" for k in keys)
@@ -1937,6 +2200,8 @@ def build_system_prompt(g):
             + "\n\nPersonality:\n" + d["prompt"])
     if g.tilted and d.get("tilt"):
         text += "\n\nRIGHT NOW: " + d["tilt"]["prompt"]
+    if g.bicker:
+        text += "\n\nRIGHT NOW: " + d["bicker_prompt"]
     return text
 
 
@@ -1948,11 +2213,12 @@ def ai_state(g, i, step):
               for k, v in sorted(p.known.items()) if k > g.pos}
     hints = [{"from_position": h[0] - g.pos + 1, "to_position": h[1] - g.pos, "live_count": h[2]}
              for h in p.hints if h[0] >= g.pos]
+    counts = {} if g.event == "fog" else {"live_remaining": live, "blank_remaining": blank}
     return {
         "you_are": p.name, "opponent": o.name, "stage": g.stage,
         "your_charges": p.hp, "max_charges": p.max_hp, "opponent_charges": o.hp,
         "opponent_max_charges": o.max_hp,
-        "shells_remaining": live + blank, "live_remaining": live, "blank_remaining": blank,
+        "shells_remaining": live + blank, **counts,
         "chambered_shell": "unknown" if cur is None else ("live" if cur else "blank"),
         "chance_chambered_is_live": round(g.chance_live(i), 2),
         "known_future_shells": future, "tarot_readings": hints,
@@ -1963,7 +2229,7 @@ def ai_state(g, i, step):
         "blind_shots_remaining": g.blind,
         "saw_active": g.sawed, "double_loaded": g.double, "jammer_set": g.jammed,
         "you": {"vest": p.vest, "ricochet_armed": p.ricochet, "leech_primed": p.leech,
-                "muzzled": p.muzzled, "has_charm": "charm" in p.items},
+                "muzzled": p.muzzled, "has_charm": "charm" in p.items, "items_used_this_load": g.load_uses[i]},
         "opponent_status": {"shackled": o.shackled, "muzzled": o.muzzled, "vest": o.vest,
                             "ricochet_armed": o.ricochet, "has_charm": "charm" in o.items,
                             "peeked_this_load": o.peeked},
@@ -2444,7 +2710,7 @@ def record_score(key, score, result):
 
 
 MENU = [
-    ("duel", "Duel a dealer", "Pick one of four opponents and survive three stages."),
+    ("duel", "Duel a dealer", "Pick one of six opponents and survive three stages."),
     ("gauntlet", "Gauntlet (endless)", "Every dealer in turn, a shop between stages, double or nothing."),
     ("daily", "Daily challenge", "Same shells and draws for everyone today. One dealer, one mutator."),
     ("classic", "Classic", "Just the basics: 5 items, no events, no tricks. Vs the Dealer or a friend."),
@@ -2462,15 +2728,17 @@ HELP_TEXT = [
     ("shoot your opponent or yourself. Live: the target loses 1 (2 sawed off). A blank at", False),
     ("yourself keeps your turn. 0 charges loses the stage. An empty gun reloads with new items.", False),
     ("THE TABLE", True),
-    ("Reloads may flip an event: Blackout, Double Stakes, Generous House, Dry Table, Hot Barrel,", False),
-    ("Rush Hour or Blood Moon. Live shells misfire 5% of the time. Both on 1 = SUDDEN DEATH.", False),
+    ("Reloads may flip one of 13 table events, such as Blackout, Hot Barrel, Fog (the mix is", False),
+    ("hidden) or Last Call (one item each). Live shells misfire 5%. Both on 1 = SUDDEN DEATH.", False),
     ("READING THE DEALER", True),
-    ("Tells: watch his face and the line under his items. The Accountant and the Gambler give", False),
-    ("honest tells, the Liar fakes his, the Croupier has none. Hit a dealer twice in a row and", False),
-    ("he TILTS. After his turn the Liar tips you off: press C to call the bluff.", False),
+    ("Tells: watch his face and the line under his items. Honest: Accountant, Gambler, Vera.", False),
+    ("Faked: Liar, Vex. Pure noise: Magician. None: Croupier. Two hits in a row and he TILTS", False),
+    ("(the Twins bicker instead). After his turn the Liar tips you off: press C to call it.", False),
     ("HOUSE RULES", True),
     ("Accountant: 3 items in one turn and he confiscates one. Gambler: once a stage, two blind", False),
     ("shots with no items and no counter. Croupier: sees the first shell of every load.", False),
+    ("Magician: on his first turn each load he may swap the next two shells, wiping your reads.", False),
+    ("Twins: one set of charges, and Vera and Vex swap seats after every turn.", False),
     ("RUNS", True),
     ("Duel: one dealer, 3 stages. Gauntlet: every dealer, endless, with a shop between stages.", False),
     ("Daily: same shells for everyone today. Mutators multiply your score. Hot-seat: two humans.", False),
@@ -2763,7 +3031,7 @@ class UI:
             return "think"
         if g.tell and g.vs_ai and g.turn == 0:
             return g.tell
-        if g.tilted:
+        if g.tilted or g.bicker:
             return "angry"
         return "idle"
 
@@ -2835,6 +3103,8 @@ class UI:
         out = []
         if idx == 1 and g.tilted:
             out.append(("TILTED", "live"))
+        if idx == 1 and g.bicker:
+            out.append((f"BICKERING · {TWINS[g.bicker]['name'].upper()} PLAYS", "live"))
         if p.shackled:
             out.append(("CHAINED", "item"))
         if p.muzzled:
@@ -2923,10 +3193,14 @@ class UI:
                     lines += [(l, 0) for l in wrap(t, iw)]
                 if g.counter_on(i):
                     lines += [(f"Odds it's live: {round(100 * g.chance_live(i))}%", self.col("item") | curses.A_BOLD)]
+                elif g.event == "lastcall":
+                    used = g.load_uses[i]
+                    lines += [(f"Last call: {1 - min(1, used)} item left this load.", self.col("item") | curses.A_BOLD)]
         else:
             if g.dealer:
                 d = g.dealer
-                title = d["name"].upper() + (" · TILTED" if g.tilted else "")
+                title = d["name"].upper() + (f" · {g.players[1].name.upper()}" if g.twin else "")
+                title += " · TILTED" if g.tilted else (" · BICKERING" if g.bicker else "")
                 lines = [(l, curses.A_DIM) for l in wrap(d["tagline"], iw)]
                 lines += [(l, self.col(d["color"])) for l in wrap(d["house_rule"], iw)]
             else:
@@ -2983,6 +3257,7 @@ class UI:
         top, bot = g.players[1], g.players[0]
         viewer = 0 if g.vs_ai else g.turn
         dealer = g.dealer
+        look = g.look
 
         # title bar
         mode_tag = "CLASSIC │ " if g.classic else ("DAILY │ " if g.seed else "")
@@ -3004,14 +3279,16 @@ class UI:
         act1 = g.turn == 1 and g.stage_winner is None
         dcol = self.col(dealer["color"]) if dealer else 0
         name1 = top.name.upper() + (f" · {dealer['tier']}" if dealer else "")
+        if g.twin:
+            name1 = f"THE TWINS · {top.name.upper()} IN THE SEAT · {dealer['tier']}"
         self.box(1, 0, 10, LEFT_W, ("▶ " if act1 else "") + name1, self.border(act1), curses.A_BOLD | dcol)
-        for k, line in enumerate(portrait(dealer, self.current_face(g))):
+        for k, line in enumerate(portrait(look, self.current_face(g))):
             self.put(2 + k, 2, line, dcol)
         self.charges(g, 1, 2, 20, ov)
         self.badges(g, 1, 3, 20)
         self.item_grid(g, 1, 4, 20, 3, 14, interactive and g.turn == 1)
-        if g.tell and g.vs_ai and g.turn == 0 and dealer and dealer.get("tells"):
-            self.put(7, 20, dealer["tells"][g.tell][:42], dcol)
+        if g.tell and g.vs_ai and g.turn == 0 and look and look.get("tells"):
+            self.put(7, 20, look["tells"][g.tell][:42], dcol)
         if self.speech and g.vs_ai:
             for k, line in enumerate(wrap(f"“{self.speech}”", 58)[:2]):
                 self.put(8 + k, 3, line, dcol | curses.A_BOLD)
@@ -3045,6 +3322,8 @@ class UI:
             flags.append(("⊘ JAMMER SET", "blank"))
         if g.blind:
             flags.append((f"$ BLIND SHOTS {g.blind}", "dealer"))
+        if g.sleight == (g.loads, g.pos):
+            flags.append(("¿ SLEIGHT OF HAND", "dealer"))
         for r, (label, ck) in enumerate(flags):
             self.put(13 + r, 46, label, self.col(ck) | curses.A_BOLD)
         if len(flags) < 4:
@@ -3075,15 +3354,20 @@ class UI:
         lv, bl = g.loaded
         rem = g.shells[pos:]
         rl = sum(rem)
-        self.segs(18, 2, [("LOADED ", curses.A_BOLD), (f"{lv} live ", self.col("live")),
-                          (f"{bl} blank", self.col("blank"))])
+        if g.event == "fog":
+            self.segs(18, 2, [("LOADED ", curses.A_BOLD), (f"{lv + bl} shells", curses.A_BOLD)])
+        else:
+            self.segs(18, 2, [("LOADED ", curses.A_BOLD), (f"{lv} live ", self.col("live")),
+                              (f"{bl} blank", self.col("blank"))])
         if g.counter_on(viewer):
             self.segs(18, 28, [("LEFT ", curses.A_BOLD), (f"{rl} live ", self.col("live")),
                                (f"{len(rem) - rl} blank", self.col("blank"))])
             if not ov and g.stage_winner is None and not g.players[viewer].is_ai:
                 self.put(18, 50, f"ODDS {round(100 * g.chance_live(viewer))}% live", self.col("item"))
         else:
-            if g.blind:
+            if g.event == "fog":
+                why = "fog"
+            elif g.blind:
                 why = "blind round"
             elif "dark" in g.mutators:
                 why = "lights out"
@@ -3203,6 +3487,14 @@ class UI:
                                     ("(any key to skip)", curses.A_DIM)], width=34)
         x0 = left + (iw - (2 * n - 1)) // 2
         skip = False
+        if g.event == "fog":  # nobody sees the mix: just N shells going in
+            for k in range(n):
+                self.put(top + 2, x0 + 2 * k, "?", curses.A_BOLD)
+                if not skip:
+                    skip = self.pause(0.15)
+            self.centered(top + 4, f"{n} SHELLS · MIX HIDDEN IN THE FOG", curses.A_BOLD)
+            self.pause(0.3 if skip else 1.3)
+            return
         for k, s in enumerate(seq):
             self.put(top + 2, x0 + 2 * k, "▮", self.col("live" if s else "blank") | curses.A_BOLD)
             if not skip:
@@ -3285,8 +3577,37 @@ class UI:
 
     def anim_calm(self, g):
         self.draw_board(g)
-        self.popup([f"{g.players[1].name} regains his composure.", ("The tilt is over.", curses.A_DIM)])
+        if g.twin:
+            self.popup(["Vera and Vex make up.", ("The seat swap resumes.", curses.A_DIM)])
+        else:
+            self.popup([f"{g.players[1].name} regains his composure.", ("The tilt is over.", curses.A_DIM)])
         self.pause(1.2)
+
+    def anim_bicker(self, g, blamed):
+        self.sound("trap")
+        self.set_face("angry", 2.5)
+        self.shake(g)
+        self.draw_board(g)
+        self.popup([("THE TWINS BICKER!", self.col("live") | curses.A_BOLD), "",
+                    f"\"That was YOUR fault, {blamed}.\"", f"{blamed} is sent away from the seat.",
+                    f"{TWINS[g.bicker]['name']} plays every turn until they land a hit.", "",
+                    ("No more seat swaps until then.", curses.A_DIM)], battr=self.col("live"))
+        self.pause(2.4)
+
+    def anim_sleight(self, g):
+        self.sound("reveal")
+        self.set_face("grin", 2.0)
+        self.draw_board(g)
+        for k in range(6):
+            hands = "  (\\_/)   ▮ ▮   (\\_/)  " if k % 2 == 0 else "  (\\_/) ▮     ▮ (\\_/)  "
+            self.popup([("¿ SLEIGHT OF HAND ?", self.col("dealer") | curses.A_BOLD), "", (hands, self.col("item"))],
+                       width=40)
+            self.scr.refresh()
+            self.nap(0.12)
+        self.popup([("¿ SLEIGHT OF HAND ?", self.col("dealer") | curses.A_BOLD), "",
+                    "He passes his hands over the next two shells.", "Did he swap them? Only he knows.",
+                    "", ("Your reads of both shells are gone.", curses.A_DIM)], width=50, battr=self.col("dealer"))
+        self.pause(2.2)
 
     def anim_audit(self, g, label):
         self.sound("trap")
@@ -3462,6 +3783,10 @@ class UI:
                 self.anim_audit(g, e[1])
             elif kind == "highroller":
                 self.anim_highroller(g)
+            elif kind == "bicker":
+                self.anim_bicker(g, e[1])
+            elif kind == "sleight":
+                self.anim_sleight(g)
             elif kind == "private":
                 self.private(g, *e[1:])
             elif kind == "snapshot":
@@ -3917,13 +4242,13 @@ class UI:
         for k, dk in enumerate(DEALER_ORDER + ["classic"]):
             dd = d["dealers"].get(dk, {})
             played, won = dd.get("played", 0), dd.get("won", 0)
-            y = 5 + k * 2 + (k > 0) * 0
+            y = 5 + k
             dealer = DEALERS[dk]
             self.put(y, 52, dealer["name"], self.col(dealer["color"]) | curses.A_BOLD)
             rate = won / played if played else 0
-            bar = "█" * round(16 * rate) + "░" * (16 - round(16 * rate))
-            self.put(y + 1, 54, bar, self.col("hp") if played else curses.A_DIM)
-            self.put(y + 1, 72, f"{won}/{played} won  {pct(won, played):>4}", 0 if played else curses.A_DIM)
+            bar = "█" * round(10 * rate) + "░" * (10 - round(10 * rate))
+            self.put(y, 67, bar, self.col("hp") if played else curses.A_DIM)
+            self.put(y, 78, f"{won}/{played}  {pct(won, played):>4}"[:18], 0 if played else curses.A_DIM)
         self.box(19, 2, 9, 96, "FAVOURITE ITEMS", curses.A_DIM, curses.A_BOLD | self.col("item"))
         top = sorted(((k, v) for k, v in d["items"].items() if k in ITEMS), key=lambda kv: -kv[1])[:5]
         if not top:
@@ -3970,15 +4295,15 @@ class UI:
         slots = [(f"duel:{dk}", DEALERS[dk]["name"].upper(), DEALERS[dk]["color"]) for dk in DEALER_ORDER]
         slots += [("gauntlet", "GAUNTLET", "item"), (f"daily:{today}", f"DAILY {today[5:]}", "blank"),
                   ("classic", "CLASSIC", "blank")]
-        spots = [(y0, 1), (y0, 26), (y0, 51), (y0, 76), (y0 + 12, 1), (y0 + 12, 26), (y0 + 12, 51)]
+        spots = [(y0 + 8 * r, 1 + 33 * c) for r in range(3) for c in range(3)]
         for (key, title, ck), (y, x) in zip(slots, spots):
-            self.box(y, x, 11, 24, title, curses.A_DIM, curses.A_BOLD | self.col(ck))
-            entries = [e for e in data.get(key, []) if isinstance(e, dict)][:9]
+            self.box(y, x, 8, 32, title, curses.A_DIM, curses.A_BOLD | self.col(ck))
+            entries = [e for e in data.get(key, []) if isinstance(e, dict)][:6]
             if not entries:
                 self.put(y + 2, x + 2, "no scores yet", curses.A_DIM)
             for r, e in enumerate(entries):
-                row = f"{e.get('score', 0):>6} {str(e.get('name', ''))[:8]:<8} {str(e.get('date', ''))[5:]}"
-                self.put(y + 1 + r, x + 2, row[:20], self.col("item") | curses.A_BOLD if r == 0 else 0)
+                row = f"{e.get('score', 0):>7}  {str(e.get('name', ''))[:12]:<12} {str(e.get('date', ''))[5:]}"
+                self.put(y + 1 + r, x + 2, row[:28], self.col("item") | curses.A_BOLD if r == 0 else 0)
 
     def show_unlocks(self, g, new):
         if not new:
@@ -4019,7 +4344,7 @@ class UI:
                 self.centered(20, MENU[sel][2], curses.A_DIM)
                 for k, dk in enumerate(DEALER_ORDER):
                     d = DEALERS[dk]
-                    x = 8 + k * 23
+                    x = 2 + k * 16
                     locked = not config.unlocked(dk)
                     a = curses.A_DIM if locked else self.col(d["color"])
                     for r, line in enumerate(portrait(d, faces[dk], locked)):
@@ -4032,7 +4357,7 @@ class UI:
                         self.hit(27, x, 15, f"@fight:{dk}")
                 st, ck = self.brain.status_line()
                 self.centered(28, st, curses.A_DIM if ck == "dim" else self.col(ck))
-                self.centered(29, "↑↓ move · Enter select · click a dealer to fight him · Q quit", curses.A_DIM)
+                self.centered(29, "↑↓ move · Enter select · click a dealer to fight · Q quit", curses.A_DIM)
                 self.scr.refresh()
             k = self.getkey(timeout=150)
             if k == "TICK":
@@ -4064,7 +4389,7 @@ class UI:
             locked = not config.unlocked(dk)
             if self.frame():
                 self.centered(1, "CHOOSE YOUR OPPONENT", self.col("item") | curses.A_BOLD)
-                self.box(3, 2, 14, 30, "DEALERS", curses.A_DIM)
+                self.box(3, 2, 24, 30, "DEALERS", curses.A_DIM)
                 for k, key in enumerate(DEALER_ORDER):
                     dd = DEALERS[key]
                     lk = not config.unlocked(key)
@@ -4079,9 +4404,7 @@ class UI:
                 for r, line in enumerate(portrait(d, "idle", locked)):
                     self.put(5 + r, 37, line, dcol)
                 if locked:
-                    text = ("The house dealer only sits down for players who have proven themselves. "
-                            "Beat any dealer in a 3-stage duel, or clear stage 3 of the Gauntlet, to unlock him.")
-                    for r, l in enumerate(wrap(text, 40)):
+                    for r, l in enumerate(wrap(d["unlock"], 40)):
                         self.put(5 + r, 55, l)
                 else:
                     self.put(5, 55, d["name"], curses.A_BOLD)
@@ -4098,9 +4421,10 @@ class UI:
                     self.put(20, 37, "CARRIES", curses.A_BOLD)
                     pool = sorted(d["pool"].items(), key=lambda kv: -kv[1])
                     if dk == "croupier":
-                        carries = "Everything. All 25 items."
+                        carries = f"Everything. All {len(ITEM_KEYS)} items."
                     else:
-                        carries = ", ".join(f"{ITEMS[k]['icon']} {ITEMS[k]['label']}" for k, _ in pool) + "."
+                        carries = d.get("carries") or ", ".join(f"{ITEMS[k]['icon']} {ITEMS[k]['label']}"
+                                                                for k, _ in pool) + "."
                     for r, l in enumerate(wrap(carries, 58)[:2]):
                         self.put(21 + r, 37, l)
                     rl = d["rules"]
@@ -4132,7 +4456,7 @@ class UI:
             if fight:
                 if config.unlocked(DEALER_ORDER[sel]):
                     return DEALER_ORDER[sel]
-                msg = "Locked. Beat any other dealer first."
+                msg = "Locked. The panel on the right says how to unlock it."
 
     def item_guide(self):
         sel, top_i, page = 0, 0, 22
@@ -4169,8 +4493,9 @@ class UI:
                         self.put(y, 33, l)
                         y += 1
                     y += 1
-                common = [DEALERS[d]["name"] for d in DEALER_ORDER[:3] if DEALERS[d]["pool"].get(it, 0) >= 3]
-                rare = [DEALERS[d]["name"] for d in DEALER_ORDER[:3] if 0 < DEALERS[d]["pool"].get(it, 0) < 3]
+                carriers = [d for d in DEALER_ORDER if d != "croupier"]
+                common = [DEALERS[d]["name"] for d in carriers if DEALERS[d]["pool"].get(it, 0) >= 3]
+                rare = [DEALERS[d]["name"] for d in carriers if 0 < DEALERS[d]["pool"].get(it, 0) < 3]
                 parts = []
                 if common:
                     parts.append("Common at: " + ", ".join(common) + ".")
@@ -4415,13 +4740,13 @@ def decide(ui, g, i, brain, step, force_shot=False):
         ui.think(g, None, 0.6 + random.random() * 0.6, None)
     d = dealer_decision(g, i)
     if g.dealer and random.random() < 0.25:
-        d["taunt"] = random.choice(g.dealer["lines"])
+        d["taunt"] = random.choice(g.look["lines"])
     return d
 
 
 def ai_turn(ui, g, brain):
     i = g.turn
-    ui.play_events(g, g.try_high_roller())
+    ui.play_events(g, g.try_high_roller() + g.try_sleight())
     for step in range(14):
         if g.stage_winner is not None or g.turn != i or g.needs_reload:
             break
@@ -4658,6 +4983,9 @@ def stage_over(ui, g, config, career):
         if not g.classic and g.dealer_key != "croupier" and config.unlock("croupier"):
             ui.banner(g, "THE CROUPIER WILL SEE YOU NOW",
                       ["A new dealer is waiting at the table.", "Pick him from the Duel menu."], "live")
+        if g.dealer_key == "croupier" and config.unlock("twins"):
+            ui.banner(g, "THE TWINS WANT A WORD",
+                      ["Vera and Vex are waiting at the table.", "Pick them from the Duel menu."], "dealer")
         finish_run(ui, g, career, True)
         return True
     ui.banner(g, f"STAGE {g.stage} CLEARED", [f"+{pts} points. {note}".strip(), f"Score: {g.score}"], "hp")
@@ -4665,6 +4993,9 @@ def stage_over(ui, g, config, career):
         if g.stage == 3 and config.unlock("croupier"):
             ui.banner(g, "THE CROUPIER WILL SEE YOU NOW",
                       ["He's now available in Duel mode too."], "live")
+        if g.dealer_key == "croupier" and config.unlock("twins"):
+            ui.banner(g, "THE TWINS WANT A WORD",
+                      ["Vera and Vex are now available in Duel mode."], "dealer")
         ui.shop(g)
         if ui.ask_double(g) == "cash":
             best = record_score("gauntlet", g.score, f"cashed out after stage {g.stage}{tag}")
@@ -4820,7 +5151,7 @@ class SimError(Exception):
 
 
 EVENT_KINDS = {"load", "event", "draft", "sudden", "shot", "bluff", "tilt", "calm", "audit", "highroller",
-               "private", "snapshot", "dice", "trap", "eject", "hurt", "minor"}
+               "private", "snapshot", "dice", "trap", "eject", "hurt", "minor", "bicker", "sleight"}
 
 
 def check_invariants(g):
@@ -4855,6 +5186,17 @@ def check_invariants(g):
         fail("Classic mode switched on an extra rule")
     if g.stage_winner is None and not g.needs_reload and g.draft_pool is None and g.left() <= 0:
         fail("a turn began with an empty gun")
+    if g.event == "lastcall" and max(g.load_uses.values()) > 1:
+        fail(f"Last Call allowed {max(g.load_uses.values())} items in one load")
+    if g.event == "fog" and g.vs_ai and g.left() > 0 and g.pos not in g.players[1].known:
+        tarot = any(h[0] <= g.pos < h[1] for h in g.players[1].hints)
+        if g.effective_current(1) is not None and not tarot:
+            fail("the dealer deduced the chambered shell from the counts under Fog")
+    if g.twin:
+        if g.players[1].name != TWINS[g.twin]["name"]:
+            fail(f"the seat says {g.players[1].name} but {g.twin} is playing")
+        if g.bicker and g.turn == 1 and g.twin != g.bicker and g.dealer_turns != g.bicker_since:
+            fail(f"{TWINS[g.twin]['name']} took a turn while {TWINS[g.bicker]['name']} was covering")
     for k, v in g.run.items():
         if v < 0:
             fail(f"career counter {k} went negative")
@@ -4967,6 +5309,16 @@ def sim_game(seed, ui, stats, holder, career):
     holder["g"], holder["scenario"] = g, scenario
     stats["scenario:" + scenario] += 1
 
+    seen = {"tricks": Counter(), "seat": None}
+
+    def fire(i, at_self):
+        cold = g.event == "cold"
+        o_shackled = g.players[1 - i].shackled
+        handle(g.shoot(i, at_self))
+        stats["shots"] += 1
+        if cold and g.stage_winner is None and g.turn == i and not o_shackled:
+            raise SimError("Cold Feet: a blank at yourself still gave an extra turn")
+
     def handle(ev):
         for e in ev:
             if e[0] not in EVENT_KINDS:
@@ -4987,6 +5339,8 @@ def sim_game(seed, ui, stats, holder, career):
                 ui.draw_board(g)
         if g.event and any(e[0] == "event" for e in ev):
             stats["table:" + g.event] += 1
+            if g.event == "heavy" and min(g.loaded) < 2:
+                raise SimError(f"Heavy Load loaded only {g.loaded[0]} live, {g.loaded[1]} blank")
 
     handle(g.start_stage())
     stats["stages"] += 1
@@ -5019,6 +5373,30 @@ def sim_game(seed, ui, stats, holder, career):
             handle(g.try_high_roller())
             if g.needs_reload:
                 continue
+        if g.vs_ai and i == 1:
+            ev = g.try_sleight()
+            if ev:
+                a = g.pos
+                seen["tricks"][(g.stage, g.loads)] += 1
+                stats["sleights"] += 1
+                if seen["tricks"][(g.stage, g.loads)] > 1:
+                    raise SimError("the Magician did his trick twice in one load")
+                you = g.players[0]
+                if a in you.known or a + 1 in you.known or any(h[0] <= a + 1 and h[1] > a for h in you.hints):
+                    raise SimError("Sleight of Hand left your reads of the swapped shells")
+                if g.players[1].known.get(a) != g.shells[a] or g.players[1].known.get(a + 1) != g.shells[a + 1]:
+                    raise SimError("the Magician doesn't know the shells he just handled")
+            handle(ev)
+            if g.twin:
+                now = (g.stage, g.dealer_turns, g.twin, g.bicker)
+                prev = seen["seat"]
+                if prev and prev[0] == g.stage and prev[3] is None and g.bicker is None:
+                    if prev[1] == g.dealer_turns and prev[2] != g.twin:
+                        raise SimError("the Twins swapped seats in the middle of a turn")
+                    if prev[1] + 1 == g.dealer_turns and prev[2] == g.twin:
+                        raise SimError(f"{g.players[1].name} played two turns in a row without bickering")
+                seen["seat"] = now
+                stats["twin turns"] += 1
         last_turn = i
         if g.vs_ai and i == 0:
             if g.pending_tip:
@@ -5034,6 +5412,8 @@ def sim_game(seed, ui, stats, holder, career):
         if g.vs_ai and i == 1:
             state = ai_state(g, i, 0)
             json.dumps(state)
+            if g.event == "fog" and ("live_remaining" in state or "blank_remaining" in state):
+                raise SimError("the live/blank counts leaked into the AI state under Fog")
             if len(build_system_prompt(g)) < 500:
                 raise SimError("the AI system prompt came out suspiciously short")
         d = sim_decision(g, i, stats)
@@ -5044,11 +5424,9 @@ def sim_game(seed, ui, stats, holder, career):
                 handle(ev)
             else:
                 stats["refused item uses"] += 1
-                handle(g.shoot(i, random.random() < 0.5))
-                stats["shots"] += 1
+                fire(i, random.random() < 0.5)
         else:
-            handle(g.shoot(i, d["action"] == "shoot_self"))
-            stats["shots"] += 1
+            fire(i, d["action"] == "shoot_self")
         if g.vs_ai and i == 1 and g.dealer_key == "liar" and g.stage_winner is None and g.turn != 1:
             g.pending_tip = True
         if ui and g.stage_winner is None:
@@ -5124,6 +5502,10 @@ def run_selftest(games=2000, base_seed=None, only=None):
     missing = [a["name"] for a in ACHIEVEMENTS if a["id"] not in career.data["achievements"]]
     print(f"Career:    {len(got)}/{len(ACHIEVEMENTS)} achievements reached by the simulated player"
           + (f" (not reached: {', '.join(missing)})" if missing and only is None else ""))
+    unseen = [k for k in EVENT_KEYS if not stats["table:" + k]]
+    print(f"Seen:      {len(EVENT_KEYS) - len(unseen)}/{len(EVENT_KEYS)} table events · "
+          f"{stats['sleights']:,} sleights of hand · {stats['twin turns']:,} Twin actions"
+          + (f" (never seen: {', '.join(unseen)})" if unseen and only is None else ""))
     unused = [k for k in ITEM_KEYS if not stats["item:" + k]]
     if unused and only is None:
         print(f"Note:      never used: {', '.join(unused)} (run more games for full coverage)")
