@@ -434,7 +434,41 @@ It never touches your settings, scores or stats files. If something breaks, it p
 
 ## More to come
 
-Nothing is scheduled after Step 7 yet.
+None of this is built yet. The steps are ordered so each one makes room for the next.
+
+### Step 8: Room to grow
+The screens are full. The main menu uses all ten number keys, the dealer row fits exactly six portraits, the high-score grid has nine slots for nine tables, and the 34 achievements fill both columns. Before any more content goes in:
+- **Play submenu.** Duel, Gauntlet, Daily, Classic and Hot-seat move under one **Play** entry, which frees five main-menu slots.
+- **Paged achievements.** The Achievements tab shows 34 per page, and the detail box stays where it is.
+- **Scrolling dealers and tables.** Use ←→ to scroll past six dealers on the main menu and past nine tables on the High scores tab.
+
+### Step 9: Runs that last
+- **Resume a run.** Quitting to the menu mid-run throws the run away today. Instead, it's saved to `~/.shellgame_run.json` (one slot) and **Continue** appears at the top of the menu. The save holds the whole table (charges, items, the gun and the score). It's deleted the moment the run resumes, so reloading can't undo a bad shot.
+- **Daily streaks.** The Daily screen shows only today's and yesterday's best. It will also show how many days in a row you've won, with your best streak under Career → Stats and two achievements (3 and 7 days).
+- **Weekly challenge.** Seeded by the week, the way the Daily is seeded by the date: a 5-stage Gauntlet with a fixed dealer order, two mutators and the shop, plus its own high-score table.
+
+### Step 10: The Bookie
+A seventh dealer (Medium, ×1.5), unlocked by winning 3 Daily challenges.
+- **House rule: Odds board.** Before each load he posts odds on the first shell, priced from the true mix minus a house margin. You can stake up to 500 points on live or blank.
+- **Tells:** honest but rare. The board itself is a free hint, but because of the margin, a bet only pays off when you know more than the mix.
+- **Style:** plays by expected value, saws only when the odds favor live, and hedges with the Vest and Jammer.
+- He gets his own portrait, prompt, strategy, duel high-score table and a "beat the Bookie" achievement. Full House then needs all seven dealers.
+
+### Step 11: New items and events
+- **Wiretap.** Hear the dealer's plan for his next turn: whether he means to shoot you or himself. It's the first item that reads the opponent instead of the gun. It isn't drawn in hot-seat.
+- **Insurance.** If you die this stage, you keep half your score instead of nothing. Sold in the Gauntlet shop only.
+- **Blindfold.** Your opponent plays their next turn with no LEFT counter. Dealers lose the live/blank counts the same way they do under Fog.
+- **Two table events** (15 in total): **Mirror Match** (both players draw the same items this load) and **Short Straw** (the first shot of the load must be at yourself).
+- New achievements for the new items and events, which the paged Achievements tab from Step 8 has room for.
+- As in earlier steps, the self-test covers every new dealer, item and event.
+
+### Fixes and polish
+- **API key off the command line.** Keys are saved by sending the command to `security -i` on standard input, so they never show up in the process list (see [Known limitations](#known-limitations)).
+- **Fewer AI requests.** The dealer plans his whole turn in one reply and is asked again only when an item tells him something new (Loupe, Radio, Tarot, Snapshot). That cuts the usual 2–5 requests per turn to 1–2.
+- **Tutorial table.** A scripted first duel against the Dealer, with a fixed gun, that teaches the counter, shooting yourself on a blank and the five Classic items one step at a time. It's offered on first launch.
+- **Run recap.** After every finished run, one screen sums it up: shots, hit rate, damage, items used and achievements unlocked, taken from the stats the run already tracks.
+- **Linux.** Keys in the Secret Service via `secret-tool` (or environment variables only), and sound via `paplay` or the terminal bell.
 
 ### Not planned
 - **3–4 player hot-seat.** Dropped; hot-seat stays two players.
+- **Online play.** It would need a server and libraries outside the standard library. The game stays one file with no dependencies.
