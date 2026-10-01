@@ -42,67 +42,149 @@ API_TIMEOUT = 25
 CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
 KEYCHAIN_SERVICE = "shellgame"
-USER_AGENT = "ShellGame/2.1 (+terminal game)"
+USER_AGENT = "ShellGame/3.0 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+SOUND_DIR = "/System/Library/Sounds"
+SOUNDS = {"bang": "Basso", "click": "Tink", "load": "Pop", "item": "Morse", "win": "Hero",
+          "lose": "Sosumi", "dice": "Bottle", "trap": "Funk", "reveal": "Glass"}
+SPEEDS = {"normal": 1.0, "fast": 0.55, "turbo": 0.25}
+DEFAULT_PREFS = {"theme": "casino", "sound": True, "speed": "normal", "mouse": True}
+
+ROLES = ["live", "blank", "item", "hp", "dealer", "flash", "title"]
+THEMES = {
+    "casino": {"label": "Casino", "live": ("RED", None), "blank": ("CYAN", None), "item": ("YELLOW", None),
+               "hp": ("GREEN", None), "dealer": ("MAGENTA", None), "flash": ("WHITE", "RED"),
+               "title": ("BLACK", "YELLOW")},
+    "neon": {"label": "Neon", "live": ("MAGENTA", None), "blank": ("CYAN", None), "item": ("YELLOW", None),
+             "hp": ("GREEN", None), "dealer": ("BLUE", None), "flash": ("BLACK", "CYAN"),
+             "title": ("BLACK", "MAGENTA")},
+    "noir": {"label": "Noir", "live": ("RED", None), "blank": ("WHITE", None), "item": ("WHITE", None),
+             "hp": ("WHITE", None), "dealer": ("WHITE", None), "flash": ("BLACK", "WHITE"),
+             "title": ("BLACK", "WHITE")},
+}
+THEME_ORDER = ["casino", "neon", "noir"]
+
+
+def _item(label, icon, cat, short, weight, desc, tip):
+    return {"label": label, "icon": icon, "cat": cat, "short": short, "weight": weight, "desc": desc, "tip": tip}
+
 
 ITEMS = {
-    "loupe": {
-        "label": "Loupe", "short": "peek at the chambered shell", "weight": 3,
-        "desc": "Peer at the shell sitting in the chamber. Only you learn if it's live or blank; "
-                "your opponent just sees you peek.",
-        "tip": "Use it before deciding who to shoot. A Loupe followed by a Saw on a live shell is the classic combo.",
-    },
-    "rack": {
-        "label": "Rack", "short": "eject the chambered shell", "weight": 3,
-        "desc": "Pump the action and eject the chambered shell without firing it. Everyone sees "
-                "what it was, and your turn goes on.",
-        "tip": "Dump a shell you're afraid of, or thin out the gun when the odds are a coin flip.",
-    },
-    "saw": {
-        "label": "Saw", "short": "next shot deals 2 damage", "weight": 2,
-        "desc": "Saw off the barrel. Your next shot deals 2 damage instead of 1, whoever you aim at. "
-                "Spent on that shot, live or blank.",
-        "tip": "Best right after a Loupe shows a live shell. Never saw the barrel and then shoot yourself on a hunch.",
-    },
-    "shackles": {
-        "label": "Shackles", "short": "opponent skips next turn", "weight": 2,
-        "desc": "Chain your opponent to the table. They skip their next turn, so you act again. "
-                "No effect on someone already chained.",
-        "tip": "Use it when you know the next two shells are live, or to buy time while you're low.",
-    },
-    "tonic": {
-        "label": "Tonic", "short": "+1 charge", "weight": 3,
-        "desc": "A bitter drink that restores 1 charge, up to your maximum. It can't be used at full charge.",
-        "tip": "Drink it early. A charge saved now is a live shell survived later.",
-    },
-    "flipper": {
-        "label": "Flipper", "short": "invert the chambered shell", "weight": 2,
-        "desc": "Invert the chambered shell: live becomes blank, blank becomes live. The new value "
-                "is announced to both players.",
-        "tip": "Turn a known blank into a live shell before shooting your opponent, or defuse a live shell you'd face.",
-    },
-    "radio": {
-        "label": "Radio", "short": "learn a random future shell", "weight": 2,
-        "desc": "A crackling voice tells you about one random shell further down the gun. Only you "
-                "hear it; the chamber row marks it.",
-        "tip": "Plan two moves ahead: if you know the second shell is live, a Rack or a blank to yourself sets it up.",
-    },
-    "hook": {
-        "label": "Hook", "short": "steal an item, use it now", "weight": 1,
-        "desc": "Steal one of your opponent's items and use it immediately. You can't steal a Hook.",
-        "tip": "Steal their Loupe when you're blind, their Saw when you know it's live, or their Tonic when hurt.",
-    },
-    "pills": {
-        "label": "Pills", "short": "50%: +2 charges, 50%: -1", "weight": 2,
-        "desc": "Expired pills of unknown origin. Coin flip: restore 2 charges, or lose 1, which can "
-                "knock you out cold.",
-        "tip": "Only worth it when you're two or more charges down. Never swallow them on your last charge.",
-    },
+    # ── classic
+    "loupe": _item("Loupe", "◎", "Information", "peek at the chambered shell", 3,
+                   "Peer at the shell sitting in the chamber. Only you learn if it's live or blank; your "
+                   "opponent just sees you peek.",
+                   "Use it before deciding who to shoot. A Loupe followed by a Saw on a live shell is the classic combo."),
+    "rack": _item("Rack", "⇥", "Gun", "eject the chambered shell", 3,
+                  "Pump the action and eject the chambered shell without firing it. Everyone sees what it "
+                  "was, and your turn goes on.",
+                  "Dump a shell you're afraid of, or thin out the gun when the odds are a coin flip."),
+    "saw": _item("Saw", "‡", "Gun", "next shot deals 2 damage", 2,
+                 "Saw off the barrel. Your next shot deals 2 damage instead of 1, whoever you aim at. "
+                 "Spent on that shot, live or blank.",
+                 "Best right after a Loupe shows a live shell. Never saw the barrel and then shoot yourself on a hunch."),
+    "shackles": _item("Shackles", "∞", "Control", "opponent skips next turn", 2,
+                      "Chain your opponent to the table. They skip their next turn, so you act again. No "
+                      "effect on someone already chained.",
+                      "Use it when you know the next two shells are live, or to buy time while you're low."),
+    "tonic": _item("Tonic", "♥", "Defense", "+1 charge", 3,
+                   "A bitter drink that restores 1 charge, up to your maximum. It can't be used at full charge.",
+                   "Drink it early. A charge saved now is a live shell survived later."),
+    "flipper": _item("Flipper", "⇅", "Gun", "invert the chambered shell", 2,
+                     "Invert the chambered shell: live becomes blank, blank becomes live. The new value is "
+                     "announced to both players.",
+                     "Turn a known blank into a live shell before shooting your opponent, or defuse one you'd face."),
+    "radio": _item("Radio", "♪", "Information", "learn a random future shell", 2,
+                   "A crackling voice tells you about one random shell further down the gun. Only you hear "
+                   "it; the chamber row marks it.",
+                   "Plan two moves ahead: if you know the second shell is live, a Rack or a blank to yourself sets it up."),
+    "hook": _item("Hook", "↩", "Control", "steal an item, use it now", 1,
+                  "Steal one of your opponent's items and use it immediately. Can't take a Hook or a Charm. "
+                  "Items that need a choice pick at random.",
+                  "Steal their Loupe when you're blind, their Saw when you know it's live, or their Tonic when hurt."),
+    "pills": _item("Pills", "◐", "Chaos", "50%: +2 charges, 50%: -1", 2,
+                   "Expired pills of unknown origin. Coin flip: restore 2 charges, or lose 1, which can knock "
+                   "you out cold.",
+                   "Only worth it when you're two or more charges down. Never swallow them on your last charge."),
+    # ── information & deception
+    "snapshot": _item("Snapshot", "▣", "Information", "see the whole chamber for 2s", 1,
+                      "A flash photo of the gun's insides. Every remaining shell is shown for two seconds, "
+                      "then the picture fades. Memorise it.",
+                      "Use it on a long load, then say the order out loud before it disappears."),
+    "tarot": _item("Tarot", "♠", "Information", "how many live in the next 3", 2,
+                   "Turn a card to learn how many of the next three shells are live, but not which ones. "
+                   "The TABLE memo keeps count as they're fired.",
+                   "\"2 of 3 live\" plus a Loupe on the first shell often tells you the whole story."),
+    "shuffle": _item("Shuffle", "⇄", "Gun", "reshuffle the remaining shells", 2,
+                     "Spin the remaining shells into a new random order. Everyone's Loupe, Radio and Tarot "
+                     "knowledge becomes worthless.",
+                     "Use it right after your opponent peeks. It's the best answer to the Accountant."),
+    "slip": _item("Slip", "↧", "Gun", "secretly insert a shell", 1,
+                  "Slide a live or blank shell into the gun at a position you choose. Everyone sees which "
+                  "kind was added, but only you know where.",
+                  "Slip a live shell into the chamber, then shoot your opponent. Or hide a blank for yourself."),
+    "decoy": _item("Decoy", "¤", "Deception", "gift a rigged item", 1,
+                   "Give your opponent a gift that looks like a normal item. When they use it, it backfires "
+                   "for 1 damage.",
+                   "Disguise it as something they'd use soon, like a Tonic when they're hurt."),
+    # ── gun manipulation
+    "double": _item("Double", "‖", "Gun", "next shot fires two shells", 1,
+                    "Your next shot fires the next two shells at the same target, one after the other. "
+                    "A Saw only boosts the first shell.",
+                    "Brutal when you know the next two are live. Terrifying when you're wrong."),
+    "jammer": _item("Jammer", "⊘", "Defense", "next live shell misfires", 2,
+                    "Wedge the firing pin. If the next shell fired is live, it misfires harmlessly and is "
+                    "ejected. Works on whoever fires next.",
+                    "Insurance before shooting yourself on bad odds. The turn still passes if it jams."),
+    "ricochet": _item("Ricochet", "↻", "Defense", "next shot at you bounces back", 2,
+                      "Bolt a steel plate to your chair. The next shot your opponent aims at you bounces back "
+                      "at them. Everyone can see it's armed.",
+                      "Arm it when you expect a live shell. It forces your opponent to shoot themselves."),
+    "leech": _item("Leech", "♦", "Chaos", "a hit on your next shot heals you", 2,
+                   "Prime a leech on the barrel. If your next shot hits your opponent, you gain 1 charge.",
+                   "Pair it with a Loupe that shows live, or a Saw for a four-charge swing."),
+    # ── defense
+    "vest": _item("Vest", "▦", "Defense", "absorb the next 1 damage", 2,
+                  "Strap on a vest that absorbs the next point of damage you take, from any source. You "
+                  "can only wear one at a time.",
+                  "Against a sawed-off shot it turns 2 damage into 1."),
+    "charm": _item("Charm", "♣", "Defense", "passive: survive one lethal hit", 1,
+                   "A lucky charm that works on its own. The first time a hit would knock you out, you "
+                   "survive on 1 charge and the Charm shatters.",
+                   "Keep it. It takes up a slot, but a Crowbar is the only way to lose it."),
+    "muzzle": _item("Muzzle", "×", "Control", "opponent can't use items next turn", 2,
+                    "Strap a muzzle on your opponent. On their next turn they can't use any items and "
+                    "have to shoot bare.",
+                    "Use it when they're sitting on a Loupe or Tonic they badly need."),
+    # ── chaos
+    "pact": _item("Pact", "†", "Chaos", "swap charges with your opponent", 1,
+                  "Sign a pact with something that isn't the house. Your charges and your opponent's "
+                  "charges swap.",
+                  "The ultimate comeback. Worthless when you're ahead."),
+    "dice": _item("Dice", "⚄", "Chaos", "roll for a random effect", 2,
+                  "Roll a die. 1: lose a charge. 2: lose a random item. 3: nothing. 4: see the chambered "
+                  "shell. 5: +1 charge. 6: shackle your opponent.",
+                  "Two good faces, one neutral, one great, two bad. Only roll when you can afford a charge."),
+    "crowbar": _item("Crowbar", "⌐", "Control", "destroy one opponent item", 2,
+                     "Smash one of your opponent's items. It's gone for good, and if it was a rigged "
+                     "Decoy, everyone finds out.",
+                     "The only answer to a Charm. Also great against a hoarded Saw or Loupe."),
+    "rewind": _item("Rewind", "↺", "Gun", "put the last fired shell back", 1,
+                    "Crank the gun backwards: the last shell fired or racked this load goes back into the "
+                    "chamber. Everyone knows what it is.",
+                    "Rewind a live shell you just survived, then point it at your opponent."),
 }
 ITEM_KEYS = list(ITEMS)
+DECOY_FORMS = ["tonic", "loupe", "saw", "vest", "rack"]
 STANDARD_POOL = {k: v["weight"] for k, v in ITEMS.items()}
 STANDARD_RULES = {"hp": [2, 4, 5], "you_items": [2, 2, 3], "dealer_items": [2, 2, 3],
                   "counter": True, "mult": 1.0, "think": "low"}
+
+
+def base(entry):
+    """Inventory entries are item keys, or 'trap:<key>' for a rigged Decoy."""
+    return entry[5:] if entry.startswith("trap:") else entry
+
 
 GENERIC_EYES = {"idle": "(o) (o)", "hurt": "(x) (x)", "grin": "(^) (^)", "think": "(-) (o)", "dead": "(+) (+)"}
 GENERIC_MOUTH = {"idle": "   ===   ", "hurt": "   ~~~   ", "grin": "  \\___/  ", "think": "   ---   ",
@@ -115,10 +197,11 @@ DEALERS = {
         "tagline": "Cautious. Audits every shell before he shoots.",
         "bio": "A pale man in a green visor who logs every shell in a ledger. He won't act on a hunch "
                "while a Loupe is in reach, and he patches up the moment he's hurt.",
-        "style": ["Always uses a Loupe or Radio before he shoots",
+        "style": ["Always peeks (Loupe, Tarot, Snapshot) before he shoots",
                   "Shoots you only when the numbers favor live",
-                  "Heals at once with Tonic, never touches Pills"],
-        "pool": {"loupe": 5, "tonic": 4, "radio": 3, "rack": 3, "shackles": 1, "saw": 1},
+                  "Wears a Vest, heals at once, never touches Pills"],
+        "pool": {"loupe": 5, "tonic": 4, "radio": 3, "rack": 3, "tarot": 3, "vest": 3, "snapshot": 2,
+                 "jammer": 2, "shackles": 1, "saw": 1},
         "rules": {"hp": [3, 4, 5], "you_items": [2, 3, 3], "dealer_items": [2, 2, 3],
                   "counter": True, "mult": 1.0, "think": "low"},
         "head": ["     _______", "    /_______\\"],
@@ -126,10 +209,11 @@ DEALERS = {
         "mouth": {"idle": "   ---   ", "hurt": "   ~~~   ", "grin": "  \\___/  ", "think": "   ...   ",
                   "dead": "   ___   "},
         "prompt": "You are THE ACCOUNTANT: meticulous, risk-averse and dry. Strategy: if the chambered shell "
-                  "is unknown and you hold a loupe (or can hook one), ALWAYS use it first; use the radio "
-                  "whenever you have it. Heal with tonic as soon as you are below max. Never take pills. "
-                  "Shoot your opponent only when the shell is known live or the chance of live is 50% or "
-                  "more; shoot yourself only when it is known blank or the chance of live is 30% or less. "
+                  "is unknown, ALWAYS gather information first (loupe, snapshot, tarot, radio). Wear a vest "
+                  "and heal with tonic as soon as you are below max. Use a jammer before shooting yourself "
+                  "unless you know it's blank. Never take pills or dice. Shoot your opponent only when the "
+                  "shell is known live or the chance of live is 50% or more; shoot yourself only when it is "
+                  "known blank or the chance of live is 30% or less. "
                   "Taunts: dry accounting jargon (ledgers, audits, margins, write-offs).",
         "lines": ["Let me check the figures.", "The numbers don't lie.", "Margins are thin today.",
                   "Filed under: your mistake.", "An audit is in order."],
@@ -138,11 +222,12 @@ DEALERS = {
         "name": "The Gambler", "tier": "EASY", "color": "item",
         "tagline": "Reckless. Shoots himself on a coin flip, for the thrill.",
         "bio": "A loud high-roller with a gold tooth. He treats a coin flip as an invitation, saws "
-               "the barrel on a hunch and eats Pills like candy.",
+               "the barrel on a hunch and rolls the Dice just to hear them rattle.",
         "style": ["Shoots himself on 50/50s to chase the extra turn",
-                  "Saws the barrel off on a hunch",
-                  "Takes Pills when hurt, rarely bothers with a Loupe"],
-        "pool": {"saw": 4, "pills": 4, "flipper": 3, "loupe": 1, "tonic": 1, "rack": 1},
+                  "Loves the Saw, Double, Dice and Pills",
+                  "Signs a Pact the moment he falls behind"],
+        "pool": {"saw": 4, "pills": 4, "dice": 4, "double": 3, "flipper": 3, "pact": 2, "leech": 2,
+                 "charm": 2, "loupe": 1, "tonic": 1},
         "rules": {"hp": [3, 4, 5], "you_items": [2, 3, 3], "dealer_items": [2, 3, 3],
                   "counter": True, "mult": 1.0, "think": "low"},
         "head": ["      ,---.", "  ___/_____\\___"],
@@ -151,9 +236,9 @@ DEALERS = {
                   "dead": "   ___   "},
         "prompt": "You are THE GAMBLER: a reckless, flashy high-roller. Strategy: when the chance of live is "
                   "50% or less, shoot YOURSELF for the thrill of the extra turn; otherwise shoot your "
-                  "opponent. Use the saw on hunches whenever the odds look even remotely good, take pills "
-                  "whenever you are hurt, flip shells on a whim, and rarely bother with the loupe. "
-                  "Taunts: casino slang (jackpots, hot streaks, let it ride).",
+                  "opponent. Use the saw and double on hunches whenever the odds look even remotely good, "
+                  "roll dice and take pills whenever you're hurt, sign a pact the moment you're behind, and "
+                  "rarely bother with the loupe. Taunts: casino slang (jackpots, hot streaks, let it ride).",
         "lines": ["Let it ride!", "Feeling lucky? I always am.", "Double or nothing, baby!",
                   "Hot streak incoming!", "House money, pal."],
     },
@@ -161,22 +246,24 @@ DEALERS = {
         "name": "The Liar", "tier": "MEDIUM", "color": "dealer",
         "tagline": "A con artist. Tips you off about the next shell. Usually lies.",
         "bio": "Silver-tongued and smiling, he always has a tip about the next shell, and he's right "
-               "just often enough to keep you listening.",
+               "just often enough to keep you listening. Mind his gifts.",
         "style": ["Whispers a 'tip' about the next shell each turn",
                   "Usually lies. Sometimes, cruelly, tells the truth",
-                  "Favors Flipper, Hook and Shackles"],
-        "pool": {"flipper": 3, "hook": 3, "shackles": 3, "loupe": 2, "radio": 2, "tonic": 1},
+                  "Slips shells, gives rigged gifts, arms Ricochets"],
+        "pool": {"flipper": 3, "hook": 3, "shackles": 3, "decoy": 3, "slip": 3, "shuffle": 2,
+                 "ricochet": 2, "muzzle": 2, "loupe": 2, "radio": 1},
         "rules": {"hp": [2, 4, 5], "you_items": [2, 2, 3], "dealer_items": [2, 3, 4],
                   "counter": True, "mult": 1.5, "think": "low"},
         "head": ["     ~~~~~~~", "    .-------."],
         "eyes": {"idle": "(o) (-)", "hurt": "(x) (x)", "grin": "(^) (-)", "think": "(-) (-)", "dead": "(+) (+)"},
         "mouth": {"idle": "  \\___/~ ", "hurt": "   ~~~   ", "grin": "  \\___/  ", "think": "   ~~~   ",
                   "dead": "   ___   "},
-        "prompt": "You are THE LIAR: a smooth, smiling con artist. Strategy: play solidly: use the loupe when "
-                  "blind, turn known blanks live with the flipper, shackle your opponent when you know a live "
-                  "shell is coming, and hook their best items. Taunts are your weapon: claim to know shells "
-                  "you don't, and usually state the OPPOSITE of the truth about the chambered or next shell. "
-                  "Tell the truth just often enough to stay unpredictable. Never admit to lying.",
+        "prompt": "You are THE LIAR: a smooth, smiling con artist. Strategy: play solidly and dirty: give "
+                  "rigged decoys, slip live shells into the chamber before shooting your opponent, shuffle "
+                  "the gun right after your opponent peeks, arm ricochets, muzzle and shackle your opponent, "
+                  "and hook their best items. Taunts are your weapon: claim to know shells you don't, and "
+                  "usually state the OPPOSITE of the truth about the chambered or next shell. Tell the truth "
+                  "just often enough to stay unpredictable. Never admit to lying.",
         "lines": ["Would I lie to you?", "Trust me. Everyone does.", "I never bluff. Well. Rarely.",
                   "Such an honest face, isn't it?", "You look nervous. Good."],
     },
@@ -186,7 +273,7 @@ DEALERS = {
         "bio": "He deals every game in this room and has never been seen to lose. He wastes nothing, "
                "and at his table the shell counter goes dark.",
         "style": ["Plays the odds almost perfectly",
-                  "Chains items: Loupe, then Saw on a live shell",
+                  "Chains items: Loupe, then Saw or Double on live",
                   "Shell counter is switched off at his table"],
         "pool": dict(STANDARD_POOL),
         "rules": {"hp": [2, 3, 4], "you_items": [1, 2, 3], "dealer_items": [2, 3, 4],
@@ -195,9 +282,9 @@ DEALERS = {
         "eyes": GENERIC_EYES,
         "mouth": GENERIC_MOUTH,
         "prompt": "You are THE CROUPIER: the house itself. Cold, courteous and nearly flawless. Strategy: "
-                  "play the odds precisely, chain items (loupe, then saw on a live shell; flipper on a known "
-                  "blank), heal before you are in danger, and never waste an item or a turn. "
-                  "Taunts: quiet, polite menace.",
+                  "play the odds precisely, gather information before committing, chain items (loupe then "
+                  "saw or double on live; flipper on a known blank; rewind a live shell), protect yourself "
+                  "with vests and jammers, and never waste an item or a turn. Taunts: quiet, polite menace.",
         "lines": ["The house always wins.", "Place your bets.", "Tick, tock.",
                   "Nothing personal. Just odds.", "The table is yours. Briefly."],
     },
@@ -296,6 +383,11 @@ def mask_key(key):
     return "•" * min(16, len(key) - 4) + key[-4:]
 
 
+def item_line(entry):
+    info = ITEMS[base(entry)]
+    return f"{info['icon']} {info['label']:<9}{info['short']}"
+
+
 # ═════════════════════════════ game model ═════════════════════════════
 class Player:
     def __init__(self, name, is_ai=False):
@@ -303,9 +395,18 @@ class Player:
         self.is_ai = is_ai
         self.hp = self.max_hp = 0
         self.items = []
-        self.shackled = False
-        self.known = {}  # absolute shell index -> True (live) / False (blank)
         self.wins = 0
+        self.reset_status()
+        self.known = {}  # absolute shell index -> True (live) / False (blank)
+        self.hints = []  # Tarot readings: [start_index, end_index, live_count]
+        self.peeked = False
+
+    def reset_status(self):
+        self.shackled = False
+        self.muzzled = False
+        self.vest = 0
+        self.ricochet = False
+        self.leech = False
 
 
 class Game:
@@ -317,6 +418,8 @@ class Game:
         self.loaded = (0, 0)
         self.turn = 0
         self.sawed = False
+        self.double = False
+        self.jammed = False
         self.log = []
         self.score = 0
         self.stage_winner = None
@@ -372,16 +475,19 @@ class Game:
         self.score += pts
         return pts
 
+    def left(self):
+        return len(self.shells) - self.pos
+
     def remaining(self):
         rem = self.shells[self.pos:]
         live = sum(rem)
         return live, len(rem) - live
 
     def _scaled(self, key, cap):
-        base = self.rules[key]
+        rules = self.rules[key]
         idx = min(self.stage, 3) - 1
         extra = (self.stage - 2) // 2 if self.stage > 3 else 0
-        return min(cap, base[idx] + extra)
+        return min(cap, rules[idx] + extra)
 
     def effective_current(self, i):
         """What player i knows or can deduce about the chambered shell."""
@@ -420,8 +526,8 @@ class Game:
         for p in self.players:
             p.hp = p.max_hp = hp
             p.items = []
-            p.shackled = False
-        self.sawed = False
+            p.reset_status()
+        self.sawed = self.double = self.jammed = False
         self.stage_winner = None
         self.pending_tip = False
         self.turn = 0 if self.vs_ai else (self.stage - 1) % 2
@@ -439,7 +545,7 @@ class Game:
         self.pos, self.spent, self.loaded = 0, [], (live, n - live)
         self.sawed = False
         for p in self.players:
-            p.known = {}
+            p.known, p.hints, p.peeked = {}, [], False
         self.add_log(f"The gun is loaded: {live} live, {n - live} blank.", "info")
         for idx, p in enumerate(self.players):
             dealer_side = self.vs_ai and idx == 1
@@ -458,9 +564,54 @@ class Game:
                 self.add_log(f"{p.name} {self.v(p, 'draw')}: {', '.join(got)}.", "item")
         return [("load", live, n - live)]
 
+    # ── shell bookkeeping
+    def _advance(self):
+        """Take the chambered shell out of the gun (fired or racked)."""
+        k = self.pos
+        val = self.shells[k]
+        self.pos += 1
+        self.spent.append(val)
+        for pl in self.players:
+            for h in pl.hints:
+                if h[0] == k:
+                    h[0] += 1
+                    h[2] -= val
+            pl.hints = [h for h in pl.hints if h[0] < h[1]]
+        return val
+
+    def damage(self, ti, dmg):
+        """Deal damage through vests and charms. Returns (damage dealt, notes)."""
+        t = self.players[ti]
+        notes = []
+        if dmg > 0 and t.vest:
+            absorbed = min(t.vest, dmg)
+            t.vest -= absorbed
+            dmg -= absorbed
+            notes.append(f"{self.poss(t)} vest absorbs {absorbed}")
+        before = t.hp
+        if dmg > 0 and t.hp - dmg <= 0 and "charm" in t.items:
+            t.items.remove("charm")
+            t.hp = 1
+            notes.append(f"{self.poss(t)} Charm shatters: 1 charge left")
+        else:
+            t.hp = max(0, t.hp - dmg)
+        if t.hp <= 0 and self.stage_winner is None:
+            self.stage_winner = 1 - ti
+            self.add_log(f"{t.name} {self.v(t, 'go')} down.", "live")
+        for n in notes:
+            self.add_log(n[0].upper() + n[1:] + ".", "item")
+        return before - t.hp, notes
+
+    def heal(self, i, amount):
+        p = self.players[i]
+        before = p.hp
+        p.hp = min(p.max_hp, p.hp + amount)
+        return p.hp - before
+
     # ── items
     def _can_apply(self, i, item, via_hook=False):
         p, o = self.players[i], self.players[1 - i]
+        n = self.left()
         if item == "loupe" and self.pos in p.known:
             return False, "You already know the chambered shell."
         if item == "saw" and self.sawed:
@@ -469,60 +620,139 @@ class Game:
             return False, f"{o.name} is already shackled."
         if item == "tonic" and p.hp >= p.max_hp:
             return False, "Already at full charge."
-        if item == "radio" and len(self.shells) - self.pos < 2:
+        if item == "radio" and n < 2:
             return False, "No future shells to listen for."
         if item == "hook":
             if via_hook:
                 return False, "You can't hook a Hook."
             if not self.stealable(i):
                 return False, "Nothing worth stealing."
+        if item == "charm":
+            return False, "The Charm works on its own when a hit would knock you out."
+        if item == "tarot" and n < 2:
+            return False, "Too few shells left for a reading."
+        if item == "shuffle" and n < 2:
+            return False, "Nothing to shuffle."
+        if item == "slip" and n >= 8:
+            return False, "The gun is full."
+        if item == "decoy" and len(o.items) >= MAX_ITEMS:
+            return False, f"{o.name} has no room for a gift."
+        if item == "double":
+            if self.double:
+                return False, "The Double is already loaded."
+            if n < 2:
+                return False, "Needs at least two shells in the gun."
+        if item == "jammer" and self.jammed:
+            return False, "The gun is already jammed."
+        if item == "ricochet" and p.ricochet:
+            return False, "Your Ricochet plate is already armed."
+        if item == "leech" and p.leech:
+            return False, "A Leech is already primed."
+        if item == "vest" and p.vest:
+            return False, "You're already wearing a Vest."
+        if item == "muzzle" and o.muzzled:
+            return False, f"{o.name} is already muzzled."
+        if item == "pact" and p.hp == o.hp:
+            return False, "Your charges are already equal."
+        if item == "crowbar" and not o.items:
+            return False, "Nothing to break."
+        if item == "rewind" and not self.spent:
+            return False, "No shell has left the gun this load."
         return True, ""
 
-    def can_use(self, i, item):
-        if item not in self.players[i].items:
+    def can_use(self, i, entry):
+        p = self.players[i]
+        if entry not in p.items:
             return False, "You don't have that item."
-        return self._can_apply(i, item)
+        if p.muzzled:
+            return False, "You're muzzled: no items this turn."
+        return self._can_apply(i, base(entry))
 
     def stealable(self, i):
         out = []
         for x in self.players[1 - i].items:
-            if x != "hook" and x not in out and self._can_apply(i, x, True)[0]:
+            if base(x) not in ("hook", "charm") and x not in out and self._can_apply(i, base(x), True)[0]:
                 out.append(x)
         return out
 
     def legal_items(self, i):
+        p = self.players[i]
+        if p.muzzled:
+            return []
         out = []
-        for x in self.players[i].items:
-            if x not in out and self._can_apply(i, x)[0]:
-                out.append(x)
+        for x in p.items:
+            b = base(x)
+            if b not in out and self._can_apply(i, b)[0]:
+                out.append(b)
         return out
 
-    def use_item(self, i, item, steal=None):
-        ok, msg = self.can_use(i, item)
+    def _match(self, entries, want):
+        """Resolve an item name to an inventory entry (exact first, else a random same-looking one)."""
+        if want in entries:
+            return want
+        cands = [x for x in entries if base(x) == want]
+        return random.choice(cands) if cands else None
+
+    def _auto_arg(self, i, item):
+        o = self.players[1 - i]
+        if item == "crowbar":
+            return random.choice(o.items) if o.items else None
+        if item == "decoy":
+            return random.choice(DECOY_FORMS)
+        if item == "slip":
+            return {"live": True, "pos": 1}
+        if item == "hook":
+            opts = self.stealable(i)
+            return random.choice(opts) if opts else None
+        return None
+
+    def use_item(self, i, item, arg=None):
+        """item may be an exact inventory entry (human) or a plain item name (AI)."""
+        p, o = self.players[i], self.players[1 - i]
+        entry = self._match(p.items, item)
+        if entry is None:
+            return False, "You don't have that item.", []
+        ok, msg = self.can_use(i, entry)
         if not ok:
             return False, msg, []
-        if item == "hook" and steal not in self.stealable(i):
-            return False, "Pick something to steal.", []
-        self.players[i].items.remove(item)
-        return True, "", self._apply(i, item, steal)
+        b = base(entry)
+        if b == "hook":
+            arg = self._match(self.stealable(i), arg) if arg else None
+            if arg is None:
+                return False, "Pick something to steal.", []
+        if b == "crowbar":
+            arg = self._match(o.items, arg) if arg else None
+            if arg is None:
+                return False, "Pick something to break.", []
+        p.items.remove(entry)
+        if entry.startswith("trap:"):
+            return True, "", self._backfire(i, b)
+        return True, "", self._apply(i, b, arg)
 
-    def _apply(self, i, item, steal=None):
+    def _backfire(self, i, item):
+        p = self.players[i]
+        label = ITEMS[item]["label"]
+        self.add_log(f"{p.name} {self.v(p, 'reach')} for the {label}... it was rigged! -1.", "live")
+        ev = [("trap", i, label)]
+        self.damage(i, 1)
+        return ev
+
+    def _apply(self, i, item, arg=None):
         p, o = self.players[i], self.players[1 - i]
         P = p.name
         ev = []
         if item == "loupe":
             live = self.shells[self.pos]
             p.known[self.pos] = live
+            p.peeked = True
             self.add_log(f"{P} {self.v(p, 'peek')} into the chamber with a Loupe.", "item")
             ev.append(("private", i, f"The chambered shell is {'LIVE' if live else 'BLANK'}.", live))
         elif item == "rack":
-            live = self.shells[self.pos]
-            self.pos += 1
-            self.spent.append(live)
+            live = self._advance()
             self.add_log(f"{P} {self.v(p, 'rack')} the gun: a {'LIVE' if live else 'BLANK'} shell drops out.",
                          "live" if live else "blank")
             ev.append(("eject", live))
-            if self.pos >= len(self.shells):
+            if self.left() <= 0:
                 self.needs_reload = True
                 self.add_log("The gun is empty.", "info")
         elif item == "saw":
@@ -534,7 +764,7 @@ class Game:
             self.add_log(f"{P} {self.v(p, 'shackle')} {self.obj(o)}.", "item")
             ev.append(("minor",))
         elif item == "tonic":
-            p.hp = min(p.max_hp, p.hp + 1)
+            self.heal(i, 1)
             self.add_log(f"{P} {self.v(p, 'drink')} a Tonic: +1 charge.", "item")
             ev.append(("minor",))
         elif item == "flipper":
@@ -542,6 +772,9 @@ class Game:
             now = self.shells[self.pos]
             for pl in self.players:
                 pl.known[self.pos] = now
+                for h in pl.hints:
+                    if h[0] <= self.pos < h[1]:
+                        h[2] += 1 if now else -1
             self.add_log(f"{P} {self.v(p, 'flip')} the chambered shell. It's now {'LIVE' if now else 'BLANK'}.",
                          "live" if now else "blank")
             ev.append(("minor",))
@@ -549,63 +782,218 @@ class Game:
             k = random.randrange(self.pos + 1, len(self.shells))
             live = self.shells[k]
             p.known[k] = live
+            p.peeked = True
             self.add_log(f"{P} {self.v(p, 'tune')} the Radio. A voice whispers...", "item")
             ev.append(("private", i,
                        f"The {ordinal(k - self.pos + 1)} shell is {'LIVE' if live else 'BLANK'} "
                        f"(the chambered one is 1st).", live))
         elif item == "hook":
-            o.items.remove(steal)
-            self.add_log(f"{P} {self.v(p, 'hook')} {self.poss(o)} {ITEMS[steal]['label']}!", "item")
-            ev += self._apply(i, steal)
+            o.items.remove(arg)
+            label = ITEMS[base(arg)]["label"]
+            self.add_log(f"{P} {self.v(p, 'hook')} {self.poss(o)} {label}!", "item")
+            if arg.startswith("trap:"):
+                ev += self._backfire(i, base(arg))
+            else:
+                b = base(arg)
+                ev += self._apply(i, b, self._auto_arg(i, b))
         elif item == "pills":
             if random.random() < 0.5:
-                p.hp = min(p.max_hp, p.hp + 2)
+                self.heal(i, 2)
                 self.add_log(f"{P} {self.v(p, 'swallow')} the Pills: +2 charges.", "item")
                 ev.append(("minor",))
             else:
-                p.hp = max(0, p.hp - 1)
                 self.add_log(f"{P} {self.v(p, 'swallow')} the Pills. Bad batch: -1 charge.", "live")
                 ev.append(("hurt", i))
-                if p.hp <= 0:
-                    self.stage_winner = 1 - i
-                    self.add_log(f"{P} {self.v(p, 'collapse')}.", "live")
+                self.damage(i, 1)
+        elif item == "snapshot":
+            p.peeked = True
+            vals = self.shells[self.pos:]
+            if p.is_ai:  # dealers memorise the photo perfectly
+                for k in range(self.pos, len(self.shells)):
+                    p.known[k] = self.shells[k]
+            self.add_log(f"{P} {self.v(p, 'snap')} a Snapshot of the chamber.", "item")
+            ev.append(("snapshot", i, list(vals)))
+        elif item == "tarot":
+            p.peeked = True
+            end = min(len(self.shells), self.pos + 3)
+            cnt = sum(self.shells[self.pos:end])
+            k = end - self.pos
+            p.hints.append([self.pos, end, cnt])
+            self.add_log(f"{P} {self.v(p, 'turn')} a Tarot card.", "item")
+            ev.append(("private", i, f"{cnt} of the next {k} shells {'is' if cnt == 1 else 'are'} live.",
+                       cnt > 0))
+        elif item == "shuffle":
+            rem = self.shells[self.pos:]
+            random.shuffle(rem)
+            self.shells[self.pos:] = rem
+            for pl in self.players:
+                pl.known = {k: v for k, v in pl.known.items() if k < self.pos}
+                pl.hints = []
+            self.add_log(f"{P} {self.v(p, 'shuffle')} the remaining shells. Everyone's notes are worthless.",
+                         "item")
+            ev.append(("minor",))
+        elif item == "slip":
+            arg = arg or {}
+            live = bool(arg.get("live", True))
+            rel = max(1, min(int(arg.get("pos", 1)), self.left() + 1))
+            ins = self.pos + rel - 1
+            self.shells.insert(ins, live)
+            for pl in self.players:
+                pl.known = {(k + 1 if k >= ins else k): v for k, v in pl.known.items()}
+                pl.hints = []
+            p.known[ins] = live
+            lv, bl = self.loaded
+            self.loaded = (lv + int(live), bl + int(not live))
+            whom = "you know" if P == "You" else ("he knows" if p.is_ai else f"{P} knows")
+            self.add_log(f"{P} {self.v(p, 'slip')} a {'LIVE' if live else 'BLANK'} shell into the gun. "
+                         f"Only {whom} where.", "live" if live else "blank")
+            ev.append(("minor",))
+        elif item == "decoy":
+            form = arg if arg in DECOY_FORMS else random.choice(DECOY_FORMS)
+            o.items.insert(random.randint(0, len(o.items)), "trap:" + form)
+            self.add_log(f"{P} {self.v(p, 'slide')} a gift across the table: a {ITEMS[form]['label']}. "
+                         f"How generous.", "item")
+            ev.append(("minor",))
+        elif item == "double":
+            self.double = True
+            self.add_log(f"{P} {self.v(p, 'load')} the Double: the next shot fires two shells.", "item")
+            ev.append(("minor",))
+        elif item == "jammer":
+            self.jammed = True
+            self.add_log(f"{P} {self.v(p, 'fit')} a Jammer: if the next shell is live, it misfires.", "item")
+            ev.append(("minor",))
+        elif item == "ricochet":
+            p.ricochet = True
+            self.add_log(f"{P} {self.v(p, 'arm')} a Ricochet plate. The next shot at {self.obj(p)} bounces back.",
+                         "item")
+            ev.append(("minor",))
+        elif item == "leech":
+            p.leech = True
+            self.add_log(f"{P} {self.v(p, 'prime')} a Leech: a hit on the next shot heals 1.", "item")
+            ev.append(("minor",))
+        elif item == "vest":
+            p.vest = 1
+            self.add_log(f"{P} {self.v(p, 'strap')} on a Vest.", "item")
+            ev.append(("minor",))
+        elif item == "muzzle":
+            o.muzzled = True
+            self.add_log(f"{P} {self.v(p, 'muzzle')} {self.obj(o)}: no items next turn.", "item")
+            ev.append(("minor",))
+        elif item == "pact":
+            a, b = p.hp, o.hp
+            p.hp, o.hp = min(p.max_hp, b), min(o.max_hp, a)
+            self.add_log(f"{P} {self.v(p, 'sign')} a Pact. Charges swapped: {a} ⇄ {b}.", "dealer")
+            ev.append(("minor",))
+        elif item == "dice":
+            roll = random.randint(1, 6)
+            text = "Nothing happens."
+            if roll == 1:
+                text = "Snake eyes: -1 charge."
+            elif roll == 2:
+                if p.items:
+                    lost = random.choice(p.items)
+                    p.items.remove(lost)
+                    text = f"Butterfingers: {ITEMS[base(lost)]['label']} dropped."
+                else:
+                    text = "Butterfingers, but there's nothing to drop."
+            elif roll == 4:
+                text = "A glimpse of the chamber."
+            elif roll == 5:
+                text = "+1 charge." if self.heal(i, 1) else "+1 charge, but you're already full."
+            elif roll == 6:
+                if o.shackled:
+                    text = f"Shackles, but {self.obj(o)} {self.v(o, 'be')} already chained."
+                else:
+                    o.shackled = True
+                    text = f"{self.obj(o)[0].upper() + self.obj(o)[1:]} {self.v(o, 'be')} shackled."
+            self.add_log(f"{P} {self.v(p, 'roll')} the Dice: {roll}. {text}", "item")
+            ev.append(("dice", i, roll, text))
+            if roll == 1:
+                self.damage(i, 1)
+            elif roll == 4:
+                live = self.shells[self.pos]
+                p.known[self.pos] = live
+                p.peeked = True
+                ev.append(("private", i, f"The chambered shell is {'LIVE' if live else 'BLANK'}.", live))
+        elif item == "crowbar":
+            if arg in o.items:
+                o.items.remove(arg)
+                rigged = " It was rigged!" if arg.startswith("trap:") else ""
+                self.add_log(f"{P} {self.v(p, 'smash')} {self.poss(o)} {ITEMS[base(arg)]['label']}.{rigged}",
+                             "item")
+            else:
+                self.add_log(f"{P} {self.v(p, 'swing')} a Crowbar at nothing.", "item")
+            ev.append(("minor",))
+        elif item == "rewind":
+            self.pos -= 1
+            self.spent.pop()
+            val = self.shells[self.pos]
+            for pl in self.players:
+                pl.known[self.pos] = val
+            self.add_log(f"{P} {self.v(p, 'rewind')} the gun: a {'LIVE' if val else 'BLANK'} shell is back "
+                         f"in the chamber.", "live" if val else "blank")
+            ev.append(("minor",))
         return ev
 
     # ── shooting
     def shoot(self, i, at_self):
         p = self.players[i]
-        ti = i if at_self else 1 - i
+        ov = {"hp": {0: self.players[0].hp, 1: self.players[1].hp}, "pos": self.pos, "sawed": self.sawed,
+              "spent": len(self.spent), "double": self.double, "jammed": self.jammed}
+        aimed = i if at_self else 1 - i
+        ti, rico = aimed, False
+        if not at_self and self.players[aimed].ricochet:
+            self.players[aimed].ricochet = False
+            ti, rico = i, True
         t = self.players[ti]
-        ov = {"hp": {ti: t.hp}, "pos": self.pos, "sawed": self.sawed, "spent": len(self.spent)}
-        live = self.shells[self.pos]
-        self.pos += 1
-        self.spent.append(live)
-        dmg = 2 if self.sawed else 1
+        who = self.refl(p) if at_self else self.obj(self.players[aimed])
+        self.add_log(f"{p.name} {self.v(p, 'shoot')} {who}.", "info")
+        if rico:
+            self.add_log(f"It bounces off the Ricochet plate, back at {self.obj(p)}!", "item")
+        shots = 2 if self.double else 1
+        self.double = False
+        jam = self.jammed
+        self.jammed = False
+        results, fired_live = [], False
+        for n in range(shots):
+            if self.left() <= 0 or self.stage_winner is not None:
+                break
+            live = self._advance()
+            r = {"live": live, "dmg": 0, "jam": False, "notes": []}
+            if live:
+                fired_live = True
+                if jam and n == 0:
+                    r["jam"] = True
+                    self.add_log("Live shell... but the Jammer holds. It misfires!", "blank")
+                else:
+                    dmg = 2 if (self.sawed and n == 0) else 1
+                    dealt, notes = self.damage(ti, dmg)
+                    r["dmg"], r["notes"] = dealt, notes
+                    self.add_log(f"BANG! {t.name} {self.v(t, 'lose')} {dealt}.", "live")
+                    if p.leech and ti != i and dealt > 0 and self.heal(i, 1):
+                        r["notes"].append(f"{p.name} {self.v(p, 'leech')} 1 charge")
+                        self.add_log(f"{p.name} {self.v(p, 'leech')} 1 charge back.", "hp")
+                    if self.vs_ai and i == 0 and ti == 1:
+                        self.award(100 * dealt)
+            else:
+                self.add_log("Click. Blank." + (" Extra turn." if at_self and shots == 1 else ""), "blank")
+                if self.vs_ai and i == 0 and at_self:
+                    self.award(150)
+            results.append(r)
         self.sawed = False
-        who = self.refl(p) if at_self else self.obj(t)
-        if live:
-            t.hp = max(0, t.hp - dmg)
-            self.add_log(f"{p.name} {self.v(p, 'shoot')} {who}. BANG! -{dmg}.", "live")
-            if self.vs_ai and i == 0 and not at_self:
-                self.award(100 * dmg)
-        else:
-            tail = " Extra turn." if at_self else ""
-            self.add_log(f"{p.name} {self.v(p, 'shoot')} {who}. Click, blank.{tail}", "blank")
-            if self.vs_ai and i == 0 and at_self:
-                self.award(150)
-        ev = [("shot", i, ti, live, dmg, ov)]
-        if t.hp <= 0:
-            self.stage_winner = 1 - ti
-            self.add_log(f"{t.name} {self.v(t, 'go')} down.", "live")
+        p.leech = False
+        ev = [("shot", i, ti, results, ov, rico)]
+        if self.stage_winner is not None:
             return ev
-        if live or not at_self:
+        if not (at_self and not fired_live):
             self.pass_turn()
-        if self.pos >= len(self.shells):
+        if self.left() <= 0:
             self.needs_reload = True
             self.add_log("The gun is empty.", "info")
         return ev
 
     def pass_turn(self):
+        self.players[self.turn].muzzled = False
         nxt = self.players[1 - self.turn]
         if nxt.shackled:
             nxt.shackled = False
@@ -615,8 +1003,8 @@ class Game:
 
 
 # ═════════════════════════════ built-in dealer strategies ═════════════════════════════
-def _use(item, steal=None):
-    return {"action": "use_item", "item": item, "steal": steal}
+def _use(item, arg=None):
+    return {"action": "use_item", "item": item, "arg": arg}
 
 
 def _opp():
@@ -625,6 +1013,59 @@ def _opp():
 
 def _me():
     return {"action": "shoot_self"}
+
+
+CROWBAR_PRIORITY = ["charm", "saw", "loupe", "double", "tonic", "vest", "snapshot", "shackles", "jammer",
+                    "ricochet", "leech", "hook"]
+
+
+def extras(g, i, c, reckless):
+    """Opportunistic uses of the newer items. Returns an action or None."""
+    L, p, o, cur, n = c["L"], c["p"], c["o"], c["cur"], c["n"]
+    if "decoy" in L:
+        return _use("decoy", random.choice(DECOY_FORMS))
+    if "vest" in L:
+        return _use("vest")
+    if "ricochet" in L:
+        return _use("ricochet")
+    if "pact" in L and o.hp - p.hp >= 2:
+        return _use("pact")
+    if "muzzle" in L and len(o.items) >= 2:
+        return _use("muzzle")
+    if "crowbar" in L:
+        names = [base(x) for x in o.items]
+        for want in CROWBAR_PRIORITY:
+            if want in names:
+                return _use("crowbar", want)
+    if "rewind" in L and g.spent and g.spent[-1] and cur is not True:
+        return _use("rewind")
+    if cur is None:
+        if "snapshot" in L:
+            return _use("snapshot")
+        if "shuffle" in L and o.peeked:
+            return _use("shuffle")
+        if "slip" in L:
+            return _use("slip", {"live": True, "pos": 1})
+        if "tarot" in L and "loupe" not in L:
+            return _use("tarot")
+    if "dice" in L and p.hp >= 2 and (reckless or (p.hp == p.max_hp and random.random() < 0.3)):
+        return _use("dice")
+    return None
+
+
+def pre_shot(g, i, c, d, reckless):
+    """Last-second boosters before a shot."""
+    L, p, cur, pl = c["L"], c["p"], c["cur"], c["pl"]
+    if d["action"] == "shoot_self":
+        if "jammer" in L and cur is not False:
+            return _use("jammer")
+    elif d["action"] == "shoot_opponent":
+        if "leech" in L and (cur is True or pl >= 0.6):
+            return _use("leech")
+        nxt = p.known.get(g.pos + 1)
+        if "double" in L and cur is True and (nxt is True or (reckless and nxt is None)):
+            return _use("double")
+    return d
 
 
 def strat_croupier(g, i, c):
@@ -690,7 +1131,7 @@ def strat_gambler(g, i, c):
     if random.random() < 0.2:
         if L and random.random() < 0.5:
             it = random.choice(L)
-            return _use(it, random.choice(g.stealable(i)) if it == "hook" else None)
+            return _use(it, g._auto_arg(i, it))
         return random.choice([_opp, _me])()
     if "pills" in L and p.hp < p.max_hp:
         return _use("pills")
@@ -744,11 +1185,16 @@ STRATEGIES = {"accountant": strat_accountant, "gambler": strat_gambler,
 
 def dealer_decision(g, i, allow_items=True):
     legal = g.legal_items(i) if allow_items else []
-    ctx = {"L": legal, "st": g.stealable(i) if "hook" in legal else [],
-           "cur": g.effective_current(i), "pl": g.chance_live(i),
-           "p": g.players[i], "o": g.players[1 - i], "n": len(g.shells) - g.pos}
-    d = STRATEGIES.get(g.dealer_key, strat_croupier)(g, i, ctx)
-    d.setdefault("steal", None)
+    c = {"L": legal, "st": [base(x) for x in g.stealable(i)] if "hook" in legal else [],
+         "cur": g.effective_current(i), "pl": g.chance_live(i),
+         "p": g.players[i], "o": g.players[1 - i], "n": g.left()}
+    reckless = g.dealer_key == "gambler"
+    d = extras(g, i, c, reckless) if legal else None
+    if d is None:
+        d = STRATEGIES.get(g.dealer_key, strat_croupier)(g, i, c)
+        if d["action"] != "use_item" and legal:
+            d = pre_shot(g, i, c, d, reckless)
+    d.setdefault("arg", None)
     return d
 
 
@@ -771,22 +1217,39 @@ Rules:
 - Shooting YOURSELF with a BLANK lets you keep your turn. Every other shot ends your turn.
 - A player at 0 charges loses the stage. When the gun is empty it is reloaded and both players draw new items.
 
-Items:
+Items (use the lowercase key):
 - loupe: privately see the chambered shell.
 - rack: eject the chambered shell without firing; everyone sees it.
-- saw: your next shot deals 2 damage.
+- saw: your next shot deals 2 damage (first shell only if doubled).
 - shackles: your opponent skips their next turn.
 - tonic: +1 charge (not above max).
-- flipper: invert the chambered shell (live <-> blank); the new value is announced to everyone.
+- flipper: invert the chambered shell; the new value is announced to everyone.
 - radio: privately learn one random future shell (position 1 = chambered).
-- hook: steal one opponent item (not a hook) and use it immediately. Put its name in "steal".
-- pills: 50% chance +2 charges, 50% chance -1 charge (can kill you).
+- hook: steal one opponent item (not hook/charm) and use it immediately. Set "target" to its name.
+- pills: 50% chance +2 charges, 50% chance -1 charge.
+- snapshot: you see and remember every remaining shell.
+- tarot: privately learn how many of the next 3 shells are live.
+- shuffle: reshuffle the remaining shells; everyone's knowledge of them is wiped.
+- slip: insert a shell. Set "slip_live" (true/false) and "slip_position" (1 = chamber). The opponent sees the kind, not the position.
+- decoy: give your opponent a rigged item that costs them 1 charge when used. Set "disguise" to tonic, loupe, saw, vest or rack.
+- double: your next shot fires the next two shells at the same target.
+- jammer: if the next shell fired (by anyone) is live, it misfires harmlessly.
+- ricochet: the next shot your opponent aims at you bounces back at them.
+- leech: if your next shot hits your opponent, you gain 1 charge.
+- vest: absorbs the next 1 damage you take.
+- charm: passive, cannot be used; saves you once from a lethal hit, leaving 1 charge.
+- muzzle: your opponent can't use items on their next turn.
+- pact: swap charge totals with your opponent.
+- dice: 1 lose a charge, 2 lose an item, 3 nothing, 4 see the chambered shell, 5 +1 charge, 6 shackle opponent.
+- crowbar: destroy one opponent item. Set "target" to its name.
+- rewind: put the last shell that left the gun (value known to all) back in the chamber.
+Beware: items your opponent gave you may be rigged decoys.
 
 You receive the game state as JSON. Choose exactly ONE next action; you will be asked again after each item.
 Only use items listed in "usable_items". Stay in character: your personality below decides your strategy.
 
 Reply with a single JSON object only, no prose and no code fences:
-{"action": "use_item" | "shoot_self" | "shoot_opponent", "item": "<item or null>", "steal": "<item or null>", "taunt": "<one short in-character line, max 60 characters>"}"""
+{"action": "use_item" | "shoot_self" | "shoot_opponent", "item": "<item or null>", "target": "<item or null>", "disguise": "<item or null>", "slip_live": true, "slip_position": 1, "taunt": "<one short in-character line, max 60 characters>"}"""
 
 
 def build_system_prompt(dealer):
@@ -799,17 +1262,25 @@ def ai_state(g, i, step):
     cur = g.effective_current(i)
     future = {str(k - g.pos + 1): ("live" if v else "blank")
               for k, v in sorted(p.known.items()) if k > g.pos}
+    hints = [{"from_position": h[0] - g.pos + 1, "to_position": h[1] - g.pos, "live_count": h[2]}
+             for h in p.hints if h[0] >= g.pos]
     return {
         "you_are": p.name, "opponent": o.name, "stage": g.stage,
         "your_charges": p.hp, "max_charges": p.max_hp, "opponent_charges": o.hp,
         "shells_remaining": live + blank, "live_remaining": live, "blank_remaining": blank,
         "chambered_shell": "unknown" if cur is None else ("live" if cur else "blank"),
         "chance_chambered_is_live": round(g.chance_live(i), 2),
-        "known_future_shells": future,
-        "saw_active": g.sawed, "opponent_shackled": o.shackled,
-        "your_items": p.items, "opponent_items": o.items,
+        "known_future_shells": future, "tarot_readings": hints,
+        "last_shell_out": None if not g.spent else ("live" if g.spent[-1] else "blank"),
+        "saw_active": g.sawed, "double_loaded": g.double, "jammer_set": g.jammed,
+        "you": {"vest": p.vest, "ricochet_armed": p.ricochet, "leech_primed": p.leech,
+                "muzzled": p.muzzled, "has_charm": "charm" in p.items},
+        "opponent_status": {"shackled": o.shackled, "muzzled": o.muzzled, "vest": o.vest,
+                            "ricochet_armed": o.ricochet, "has_charm": "charm" in o.items,
+                            "peeked_this_load": o.peeked},
+        "your_items": [base(x) for x in p.items], "opponent_items": [base(x) for x in o.items],
         "usable_items": g.legal_items(i),
-        "stealable_with_hook": g.stealable(i) if "hook" in p.items else [],
+        "stealable_with_hook": [base(x) for x in g.stealable(i)] if "hook" in [base(x) for x in p.items] else [],
         "items_used_this_turn": step,
         "recent_events": [t for t, _ in g.log[-8:]],
     }
@@ -847,17 +1318,29 @@ def validate_decision(g, i, d):
     taunt = clean_taunt(d.get("taunt"))
     if act in ("shoot_self", "shoot_opponent"):
         return {"action": act, "taunt": taunt}
-    if act == "use_item":
-        item = str(d.get("item") or "").strip().lower()
-        if item not in g.legal_items(i):
-            return None
-        out = {"action": "use_item", "item": item, "taunt": taunt, "steal": None}
-        if item == "hook":
-            steal = str(d.get("steal") or "").strip().lower()
-            opts = g.stealable(i)
-            out["steal"] = steal if steal in opts else random.choice(opts)
-        return out
-    return None
+    if act != "use_item":
+        return None
+    item = str(d.get("item") or "").strip().lower()
+    if item not in g.legal_items(i):
+        return None
+    arg = None
+    if item in ("hook", "crowbar"):
+        t = str(d.get("target") or d.get("steal") or "").strip().lower()
+        pool = g.stealable(i) if item == "hook" else g.players[1 - i].items
+        opts = [base(x) for x in pool]
+        arg = t if t in opts else random.choice(opts)
+    elif item == "decoy":
+        t = str(d.get("disguise") or "").strip().lower()
+        arg = t if t in DECOY_FORMS else random.choice(DECOY_FORMS)
+    elif item == "slip":
+        raw = d.get("slip_live")
+        live = raw if isinstance(raw, bool) else (True if raw is None else str(raw).lower() in ("true", "live", "1", "yes"))
+        try:
+            pos = int(d.get("slip_position") or 1)
+        except (TypeError, ValueError):
+            pos = 1
+        arg = {"live": live, "pos": pos}
+    return {"action": "use_item", "item": item, "arg": arg, "taunt": taunt}
 
 
 # ═════════════════════════════ networking ═════════════════════════════
@@ -996,12 +1479,23 @@ def detect_provider():
 class Config:
     def __init__(self):
         d = load_json(CONFIG_FILE)
-        for k, t in (("models", dict), ("base_urls", dict), ("unlocked", list)):
+        for k, t in (("models", dict), ("base_urls", dict), ("unlocked", list), ("prefs", dict)):
             if not isinstance(d.get(k), t):
                 d[k] = t()
         if d.get("provider") not in PROVIDERS:
             d["provider"] = detect_provider()
+        prefs = d["prefs"]
+        for k, v in DEFAULT_PREFS.items():
+            prefs.setdefault(k, v)
+        if prefs["theme"] not in THEMES:
+            prefs["theme"] = "casino"
+        if prefs["speed"] not in SPEEDS:
+            prefs["speed"] = "normal"
         self.data = d
+
+    @property
+    def prefs(self):
+        return self.data["prefs"]
 
     def save(self):
         save_json(CONFIG_FILE, self.data)
@@ -1114,7 +1608,6 @@ class Brain:
             return f"AI: {label} needs {' and '.join(miss)}. Open Settings.", "item"
         return f"AI: {label} · {self.model()} · key: {self.key()[1]}", "hp"
 
-    # ── requests
     def complete(self, system, user, think="low"):
         p = self.provider
         kind = PROVIDERS[p]["kind"]
@@ -1197,9 +1690,9 @@ class Brain:
         return sorted(set(out))
 
     def test(self):
-        miss = self.missing()
         if self.provider == "off":
             raise ApiError(0, "pick a provider first")
+        miss = self.missing()
         if miss:
             raise ApiError(0, f"add {' and '.join(miss)} first")
         t0 = time.time()
@@ -1262,9 +1755,9 @@ MENU = [
     ("duel", "Duel a dealer", "Pick one of four opponents and survive three stages."),
     ("gauntlet", "Gauntlet (endless)", "Face every dealer in turn. Double or nothing between stages."),
     ("hotseat", "Hot-seat", "Two players, one keyboard, best of three stages."),
-    ("items", "Item guide", "What every item does and when to use it."),
+    ("items", "Item guide", "All 25 items: what they do and when to use them."),
     ("scores", "High scores", "Your best runs against each dealer."),
-    ("settings", "Settings", "Connect Gemini or SleepyAI to play the dealers."),
+    ("settings", "Settings", "AI provider, theme, sound, animation speed and mouse."),
     ("help", "How to play", "The rules on one screen."),
     ("quit", "Quit", "Leave the table."),
 ]
@@ -1278,18 +1771,18 @@ HELP_TEXT = [
     ("  • Live shell: the target loses 1 charge (2 if the barrel is sawed off).", False),
     ("  • Blank at yourself: you keep your turn. Any other shot ends it.", False),
     ("Lose every charge and you lose the stage. An empty gun is reloaded and both players", False),
-    ("draw new items (8 max). You always draw from the standard pool; dealers carry their own.", False),
+    ("draw new items (8 max). You draw from all 25 items; each dealer carries his own pool.", False),
+    ("STATUS BADGES", True),
+    ("CHAINED skips a turn · MUZZLED can't use items · VEST absorbs 1 · RICOCHET bounces the next", False),
+    ("shot · LEECH heals on a hit · CHARM survives one lethal hit. Gifts may be rigged.", False),
     ("MODES", True),
     ("Duel: beat one dealer three stages running. Beat anyone to unlock the Croupier.", False),
     ("Gauntlet: every dealer in turn, forever. After each stage: cash out, or double or nothing.", False),
     ("Hot-seat: two humans, one keyboard, best of three stages.", False),
     ("CONTROLS", True),
-    ("←→ / Tab select an item or action · ↑↓ jump between items and actions · Enter use it", False),
-    ("1-8 quick-use an item · S shoot yourself · O shoot opponent · ? help · I item guide · Q menu", False),
-    ("The mouse works too: click items, buttons, menu entries and dealers.", False),
-    ("DEALERS", True),
-    ("Each dealer has a personality, a strategy and an item pool. Read their profile before you", False),
-    ("sit down. The Liar's tips are worth exactly what you paid for them.", False),
+    ("←→ / Tab select · ↑↓ items/actions · Enter use · 1-8 quick-use · S self · O opponent", False),
+    ("? help · I item guide · Q menu. The mouse works too: click items, buttons and dealers.", False),
+    ("Settings has themes (Casino, Neon, Noir), sound, animation speed and a mouse toggle.", False),
 ]
 
 
@@ -1300,40 +1793,71 @@ class UI:
               curses.KEY_BTAB: "BTAB", curses.KEY_ENTER: "ENTER", curses.KEY_BACKSPACE: "BACKSPACE",
               curses.KEY_DC: "BACKSPACE", curses.KEY_RESIZE: "RESIZE"}
 
-    def __init__(self, scr):
+    def __init__(self, scr, config):
         self.scr = scr
+        self.config = config
         self.oy = self.ox = 0
+        self.shake_x = 0
         self.hits = []
         self.brain = None
         self.c = {}
+        self.has_color = curses.has_colors()
+        self.default_bg = -1
         self.new_game()
         try:
             curses.curs_set(0)
         except curses.error:
             pass
         scr.keypad(True)
-        try:
-            curses.mousemask(curses.ALL_MOUSE_EVENTS)
-            curses.mouseinterval(0)
-        except curses.error:
-            pass
-        if curses.has_colors():
+        if self.has_color:
             curses.start_color()
-            bg = -1
             try:
                 curses.use_default_colors()
             except curses.error:
-                bg = curses.COLOR_BLACK
-            spec = [("live", curses.COLOR_RED, bg), ("blank", curses.COLOR_CYAN, bg),
-                    ("item", curses.COLOR_YELLOW, bg), ("hp", curses.COLOR_GREEN, bg),
-                    ("dealer", curses.COLOR_MAGENTA, bg), ("flash", curses.COLOR_WHITE, curses.COLOR_RED),
-                    ("title", curses.COLOR_BLACK, curses.COLOR_YELLOW)]
-            for n, (name, fg, b) in enumerate(spec, 1):
-                try:
-                    curses.init_pair(n, fg, b)
-                    self.c[name] = curses.color_pair(n)
-                except curses.error:
-                    pass
+                self.default_bg = curses.COLOR_BLACK
+        self.apply_theme()
+        self.apply_mouse()
+
+    # ── preferences
+    @property
+    def prefs(self):
+        return self.config.prefs
+
+    @property
+    def speed(self):
+        return SPEEDS.get(self.prefs["speed"], 1.0)
+
+    def apply_theme(self):
+        if not self.has_color:
+            return
+        theme = THEMES.get(self.prefs["theme"], THEMES["casino"])
+        for n, role in enumerate(ROLES, 1):
+            fg, bg = theme[role]
+            fgc = getattr(curses, "COLOR_" + fg)
+            bgc = self.default_bg if bg is None else getattr(curses, "COLOR_" + bg)
+            try:
+                curses.init_pair(n, fgc, bgc)
+                self.c[role] = curses.color_pair(n)
+            except curses.error:
+                pass
+
+    def apply_mouse(self):
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS if self.prefs["mouse"] else 0)
+            curses.mouseinterval(0)
+        except curses.error:
+            pass
+
+    def sound(self, name):
+        if not self.prefs["sound"] or sys.platform != "darwin":
+            return
+        path = os.path.join(SOUND_DIR, SOUNDS.get(name, "Pop") + ".aiff")
+        if not os.path.exists(path) or not shutil.which("afplay"):
+            return
+        try:
+            subprocess.Popen(["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
 
     def new_game(self):
         self.msg = ""
@@ -1372,7 +1896,7 @@ class UI:
         if y < 0 or y >= H or x < 0 or x >= W or not s:
             return
         try:
-            self.scr.addstr(self.oy + y, self.ox + x, s[:W - x], attr)
+            self.scr.addstr(self.oy + y, self.ox + x + self.shake_x, s[:W - x], attr)
         except curses.error:
             pass
 
@@ -1440,29 +1964,37 @@ class UI:
             return "CLICK"
         return None
 
-    def getkey(self):
-        while True:
-            c = self.scr.getch()
-            if c == -1:
-                continue
-            if c == curses.KEY_MOUSE:
-                tok = self._mouse()
-                if tok:
-                    return tok
-                continue
-            if c in (10, 13):
-                return "ENTER"
-            if c == 27:
-                return "ESC"
-            if c in (8, 127):
-                return "BACKSPACE"
-            if c == 9:
-                return "TAB"
-            if c == 21:
-                return "CTRL_U"
-            if 32 <= c < 127:
-                return chr(c)
-            return self.KEYMAP.get(c, "")
+    def getkey(self, timeout=None):
+        if timeout is not None:
+            self.scr.timeout(timeout)
+        try:
+            while True:
+                c = self.scr.getch()
+                if c == -1:
+                    if timeout is not None:
+                        return "TICK"
+                    continue
+                if c == curses.KEY_MOUSE:
+                    tok = self._mouse()
+                    if tok:
+                        return tok
+                    continue
+                if c in (10, 13):
+                    return "ENTER"
+                if c == 27:
+                    return "ESC"
+                if c in (8, 127):
+                    return "BACKSPACE"
+                if c == 9:
+                    return "TAB"
+                if c == 21:
+                    return "CTRL_U"
+                if 32 <= c < 127:
+                    return chr(c)
+                return self.KEYMAP.get(c, "")
+        finally:
+            if timeout is not None:
+                self.scr.timeout(-1)
 
     def wait_key(self):
         self.scr.refresh()
@@ -1473,9 +2005,9 @@ class UI:
                 return k
 
     def pause(self, secs):
-        """Wait up to secs. Returns True if a key or click skipped it."""
+        """Wait up to secs (scaled by animation speed). Returns True if a key or click skipped it."""
         self.scr.refresh()
-        end = time.time() + secs
+        end = time.time() + secs * self.speed
         try:
             while True:
                 rem = end - time.time()
@@ -1497,6 +2029,9 @@ class UI:
         finally:
             self.scr.timeout(-1)
 
+    def nap(self, secs):
+        time.sleep(secs * self.speed)
+
     def set_face(self, name, secs):
         self.face, self.face_until = name, time.time() + secs
 
@@ -1509,10 +2044,47 @@ class UI:
 
     def kind_attr(self, kind):
         return {"live": self.col("live"), "blank": self.col("blank"), "item": self.col("item"),
-                "dealer": self.col("dealer"), "title": curses.A_BOLD}.get(kind, 0)
+                "dealer": self.col("dealer"), "hp": self.col("hp"), "title": curses.A_BOLD}.get(kind, 0)
 
     def border(self, active):
         return (self.col("item") | curses.A_BOLD) if active else curses.A_DIM
+
+    # ═════════ effects ═════════
+    def wipe(self):
+        if self.speed < 0.3:
+            return
+        h, w = self.scr.getmaxyx()
+        a = self.col("title", curses.A_REVERSE)
+        for x in range(0, w, 4):
+            for y in range(h):
+                seg = "▓▒░ "[:max(0, min(4, w - x - (1 if y == h - 1 else 0)))]
+                try:
+                    self.scr.addstr(y, x, seg, a)
+                except curses.error:
+                    pass
+            self.scr.refresh()
+            time.sleep(0.004)
+
+    def shake(self, g):
+        for dx in (2, -2, 1, -1, 0):
+            self.shake_x = dx
+            self.draw_board(g)
+            self.nap(0.035)
+        self.shake_x = 0
+
+    def flash(self, g):
+        h, w = self.scr.getmaxyx()
+        a = self.col("flash", curses.A_REVERSE)
+        for _ in range(2):
+            for y in range(h):
+                try:
+                    self.scr.addstr(y, 0, " " * (w - 1 if y == h - 1 else w), a)
+                except curses.error:
+                    pass
+            self.scr.refresh()
+            self.nap(0.07)
+            self.draw_board(g)
+            self.nap(0.07)
 
     # ═════════ game board ═════════
     def controls(self, g):
@@ -1527,8 +2099,26 @@ class UI:
         self.put(y, x + 8, "█" * hp, bar | curses.A_BOLD)
         self.put(y, x + 8 + hp, "░" * max(0, p.max_hp - hp), curses.A_DIM)
         self.put(y, x + 9 + p.max_hp, f"{hp}/{p.max_hp}")
+
+    def badges(self, g, idx, y, x):
+        p = g.players[idx]
+        out = []
         if p.shackled:
-            self.put(y, x + 14 + p.max_hp, "SHACKLED", self.col("item") | curses.A_BOLD)
+            out.append(("CHAINED", "item"))
+        if p.muzzled:
+            out.append(("MUZZLED", "item"))
+        if p.vest:
+            out.append(("VEST", "hp"))
+        if p.ricochet:
+            out.append(("RICOCHET", "blank"))
+        if p.leech:
+            out.append(("LEECH", "live"))
+        if "charm" in p.items:
+            out.append(("CHARM", "hp"))
+        for label, ck in out:
+            s = f"[{label}]"
+            self.put(y, x, s, self.col(ck) | curses.A_BOLD)
+            x += len(s) + 1
 
     def item_grid(self, g, idx, y, x, cols, cell, interactive):
         p = g.players[idx]
@@ -1537,9 +2127,9 @@ class UI:
         for k, it in enumerate(p.items):
             r, c = divmod(k, cols)
             cy, cx = y + r, x + c * cell
-            label = ITEMS[it]["label"]
+            info = ITEMS[base(it)]
             if interactive:
-                text = f" {k + 1} {label} ".ljust(cell - 1)
+                text = f" {k + 1} {info['icon']} {info['label']}".ljust(cell - 1)
                 usable = g.can_use(idx, it)[0]
                 if self.focus == k:
                     a = self.sel_attr()
@@ -1550,7 +2140,7 @@ class UI:
                 self.put(cy, cx, text, a)
                 self.hit(cy, cx, cell - 1, f"@item:{k}")
             else:
-                self.put(cy, cx, f" · {label}", self.col("item") if p.is_ai else 0)
+                self.put(cy, cx, f" {info['icon']} {info['label']}", self.col("item") if p.is_ai else 0)
 
     def draw_info(self, g, interactive):
         x, y, iw = RIGHT_X, 1, RIGHT_W - 4
@@ -1561,26 +2151,33 @@ class UI:
             kind, val = ctrls[max(0, min(self.focus, len(ctrls) - 1))]
             if kind == "item":
                 it = p.items[val]
-                info = ITEMS[it]
-                title = f"ITEM · {info['label'].upper()}"
-                lines = [(l, 0) for l in wrap(info["desc"], iw)] + [("", 0)]
+                info = ITEMS[base(it)]
+                title = f"{info['icon']} {info['label'].upper()} · {info['cat'].upper()}"
+                lines = [(l, 0) for l in wrap(info["desc"], iw)][:6] + [("", 0)]
                 ok, why = g.can_use(i, it)
                 if ok:
                     lines.append(("Enter to use it.", self.col("item") | curses.A_BOLD))
                 else:
-                    lines += [(l, self.col("live")) for l in wrap("Can't use now: " + why, iw)]
+                    lines += [(l, self.col("live")) for l in wrap("Can't: " + why, iw)]
             else:
                 o = g.players[1 - i]
                 title = "ACTION"
+                n = 2 if g.double else 1
+                shells = "two shells" if n == 2 else "the chambered shell"
                 if val == "opp":
-                    txt = [f"Shoot {g.obj(o)}.", "Live: they lose 1 charge (2 if sawed off).", "Blank: your turn ends."]
+                    txt = [f"Shoot {g.obj(o)} with {shells}.", "Live: they lose 1 (2 if sawed off).",
+                           "Blank: your turn ends."]
+                    if o.ricochet:
+                        txt.append("Their RICOCHET plate will bounce it back at you!")
                 else:
-                    txt = ["Shoot yourself.", "Blank: you keep your turn.", "Live: you lose 1 charge (2 if sawed off)."]
+                    txt = [f"Shoot yourself with {shells}.", "Blank: you keep your turn.",
+                           "Live: you lose 1 (2 if sawed off)."]
+                    if g.jammed:
+                        txt.append("The Jammer will stop a live shell.")
                 for t in txt:
                     lines += [(l, 0) for l in wrap(t, iw)]
                 if g.rules["counter"]:
-                    lines += [("", 0), (f"Odds it's live: {round(100 * g.chance_live(i))}%",
-                                        self.col("item") | curses.A_BOLD)]
+                    lines += [(f"Odds it's live: {round(100 * g.chance_live(i))}%", self.col("item") | curses.A_BOLD)]
         elif g.dealer:
             d = g.dealer
             title = d["name"].upper()
@@ -1591,7 +2188,7 @@ class UI:
             title = "HOT-SEAT"
             lines = [(l, 0) for l in wrap("Two players, one keyboard, best of three stages. "
                                           "Look away when the other player peeks.", iw)]
-        self.box(y, x, 10, RIGHT_W, title, self.border(interactive), curses.A_BOLD)
+        self.box(y, x, 10, RIGHT_W, title[:RIGHT_W - 6], self.border(interactive), curses.A_BOLD)
         for k, (t, a) in enumerate(lines[:8]):
             self.put(y + 1 + k, x + 2, t, a)
 
@@ -1643,8 +2240,7 @@ class UI:
         for k, line in enumerate(portrait(dealer, self.current_face(g))):
             self.put(2 + k, 2, line, dcol)
         self.charges(g, 1, 2, 20, ov)
-        if dealer:
-            self.put(3, 20, dealer["tagline"][:42], curses.A_DIM)
+        self.badges(g, 1, 3, 20)
         self.item_grid(g, 1, 4, 20, 3, 14, interactive and g.turn == 1)
         if self.speech and g.vs_ai:
             for k, line in enumerate(wrap(f"“{self.speech}”", 58)[:2]):
@@ -1661,9 +2257,18 @@ class UI:
         sawed = ov.get("sawed", g.sawed)
         for k, line in enumerate(gun_art(sawed)):
             self.put(13 + k, 2, line)
+        flags = []
         if sawed:
-            self.put(13, 48, "SAWED OFF", self.col("live") | curses.A_BOLD)
-            self.put(14, 48, "next shot x2", self.col("live"))
+            flags.append(("‡ SAWED OFF x2", "live"))
+        if ov.get("double", g.double):
+            flags.append(("‖ DOUBLE LOADED", "item"))
+        if ov.get("jammed", g.jammed):
+            flags.append(("⊘ JAMMER SET", "blank"))
+        for r, (label, ck) in enumerate(flags):
+            self.put(13 + r, 46, label, self.col(ck) | curses.A_BOLD)
+        for r, h in enumerate([h for h in g.players[viewer].hints if h[0] >= g.pos][:1]):
+            rng = f"next {h[1] - h[0]}" if h[0] == g.pos else f"#{h[0] - g.pos + 1}-{h[1] - g.pos}"
+            self.put(16, 40, f"♠ TAROT {h[2]} live in {rng}"[:22], self.col("item"))
         pos = ov.get("pos", g.pos)
         known = g.players[viewer].known
         self.put(17, 2, "CHAMBER", curses.A_BOLD)
@@ -1683,7 +2288,7 @@ class UI:
                 self.put(17, x, ch, a)
                 x += 2
         self.put(17, 36, "SPENT", curses.A_BOLD)
-        for k, s in enumerate(g.spent[:ov.get("spent", len(g.spent))]):
+        for k, s in enumerate(g.spent[:ov.get("spent", len(g.spent))][-9:]):
             self.put(17, 42 + 2 * k, "▮", self.col("live" if s else "blank"))
         lv, bl = g.loaded
         rem = g.shells[pos:]
@@ -1703,6 +2308,7 @@ class UI:
         self.box(20, 0, 6, LEFT_W, ("▶ " if act0 else "") + bot.name.upper(), self.border(act0))
         self.charges(g, 0, 21, 2, ov)
         self.item_grid(g, 0, 22, 2, 4, 15, interactive and g.turn == 0)
+        self.badges(g, 0, 24, 2)
 
         # right column
         self.draw_info(g, interactive)
@@ -1720,28 +2326,15 @@ class UI:
         else:
             self.action_bar(g, interactive)
         if self.msg:
-            self.put(28, 2, self.msg[:W - 4], self.col("item"))
+            self.put(28, 2, "⚠ " + self.msg[:W - 6], self.col("item"))
         if interactive:
             self.put(29, 2, "←→ select  ↑↓ items/actions  Enter use  1-8 item  S self  O opponent  "
                             "? help  I items  Q menu", curses.A_DIM)
         self.scr.refresh()
 
     # ═════════ animations ═════════
-    def flash(self, g):
-        h, w = self.scr.getmaxyx()
-        a = self.col("flash", curses.A_REVERSE)
-        for _ in range(2):
-            for y in range(h):
-                try:
-                    self.scr.addstr(y, 0, " " * (w - 1 if y == h - 1 else w), a)
-                except curses.error:
-                    pass
-            self.scr.refresh()
-            time.sleep(0.07)
-            self.draw_board(g)
-            time.sleep(0.07)
-
     def anim_load(self, g, live, blank):
+        self.sound("load")
         seq = [True] * live + [False] * blank
         n = len(seq)
         self.draw_board(g)
@@ -1770,32 +2363,58 @@ class UI:
             self.put(top + 2, x0 + 2 * k, "▯", curses.A_DIM)
         self.pause(0.3 if skip else 0.7)
 
-    def anim_shot(self, g, shooter, target, live, dmg, ov):
+    def anim_shot(self, g, shooter, target, results, ov, rico):
         s, t = g.players[shooter], g.players[target]
-        arrow = "▲▲▲" if target == 1 else "▼▼▼"
-        at = g.refl(s) if shooter == target else g.obj(t)
+        aimed = shooter if (target == shooter and not rico) else 1 - shooter
+        arrow = "▲▲▲" if aimed == 1 else "▼▼▼"
+        at = g.refl(s) if aimed == shooter else g.obj(g.players[aimed])
+        extra = " · DOUBLE" if len(results) > 1 or ov.get("double") else ""
         self.override = ov
-        self.aim = f"{arrow} {s.name} {g.v(s, 'aim')} at {at} {arrow}"
+        self.aim = f"{arrow} {s.name} {g.v(s, 'aim')} at {at}{extra} {arrow}"
         self.draw_board(g)
         self.pause(1.1)
+        if rico:
+            self.sound("trap")
+            self.popup([("↻ RICOCHET!", self.col("item") | curses.A_BOLD), "",
+                        f"The shot bounces back at {g.obj(s)}!"], battr=self.col("item"))
+            self.pause(1.1)
         self.aim = None
-        if live:
-            self.flash(g)
-            self.override = None
-            if g.vs_ai:
-                self.set_face("hurt" if target == 1 else "grin", 2.0)
-            self.draw_board(g)
-            c = self.col("live") | curses.A_BOLD
-            self.popup([(l, c) for l in big("BANG!")]
-                       + ["", f"{t.name} {g.v(t, 'lose')} {dmg} charge{'s' if dmg > 1 else ''}."],
-                       battr=self.col("live"))
-            self.pause(1.4)
-        else:
-            self.override = None
-            self.draw_board(g)
-            self.popup([("*click*", self.col("blank") | curses.A_BOLD), "", "Blank."], battr=self.col("blank"))
-            self.pause(1.0)
+        for r in results:
+            if r["jam"]:
+                self.sound("click")
+                self.draw_board(g)
+                self.popup([("⊘ MISFIRE", self.col("blank") | curses.A_BOLD), "",
+                            "A live shell, stopped cold by the Jammer."], battr=self.col("blank"))
+                self.pause(1.1)
+            elif r["live"]:
+                self.sound("bang")
+                self.flash(g)
+                self.shake(g)
+                if g.vs_ai:
+                    self.set_face("hurt" if target == 1 else "grin", 2.0)
+                self.draw_board(g)
+                c = self.col("live") | curses.A_BOLD
+                body = [(l, c) for l in big("BANG!")] + [""]
+                body.append(f"{t.name} {g.v(t, 'lose')} {r['dmg']} charge{'s' if r['dmg'] != 1 else ''}.")
+                body += [n[0].upper() + n[1:] + "." for n in r["notes"]]
+                self.popup(body, battr=self.col("live"))
+                self.pause(1.4)
+            else:
+                self.sound("click")
+                self.draw_board(g)
+                self.popup([("*click*", self.col("blank") | curses.A_BOLD), "", "Blank."], battr=self.col("blank"))
+                self.pause(0.9)
+        self.override = None
         self.draw_board(g)
+
+    def gate(self, g, p):
+        """Hot-seat privacy screen before a secret reveal."""
+        if g.vs_ai:
+            return
+        if self.frame():
+            self.popup([(f"FOR {p.name.upper()}'S EYES ONLY", self.col("item") | curses.A_BOLD), "",
+                        "Everyone else: look away."], buttons=[("Reveal", "@ok")])
+        self.wait_key()
 
     def private(self, g, idx, text, live):
         p = g.players[idx]
@@ -1804,17 +2423,66 @@ class UI:
             self.draw_board(g)
             self.pause(0.9)
             return
-        if not g.vs_ai:
-            if self.frame():
-                self.popup([(f"FOR {p.name.upper()}'S EYES ONLY", self.col("item") | curses.A_BOLD), "",
-                            "Everyone else: look away.", "", ("press any key to reveal", curses.A_DIM)])
-            self.wait_key()
+        self.gate(g, p)
+        self.sound("reveal")
         self.draw_board(g)
         c = self.col("live" if live else "blank")
-        self.popup([("SECRET", curses.A_BOLD), "", (text, c | curses.A_BOLD), "",
-                    ("press any key", curses.A_DIM)], battr=c)
+        self.popup([("SECRET", curses.A_BOLD), "", (text, c | curses.A_BOLD)],
+                   battr=c, buttons=[("Got it", "@ok")])
         self.wait_key()
         self.draw_board(g)
+
+    def anim_snapshot(self, g, idx, vals):
+        p = g.players[idx]
+        if p.is_ai:
+            self.set_face("think", 1.5)
+            self.draw_board(g)
+            self.pause(0.9)
+            return
+        self.gate(g, p)
+        self.sound("reveal")
+        self.draw_board(g)
+        n = len(vals)
+        top, left, iw = self.popup([("▣ SNAPSHOT", self.col("item") | curses.A_BOLD), "", "", "",
+                                    ("memorise it: 1 = chambered", curses.A_DIM), ""], width=max(34, 4 * n + 4))
+        x0 = left + (iw - (4 * n - 1)) // 2
+        for k, s in enumerate(vals):
+            self.put(top + 2, x0 + 4 * k, f"[{'L' if s else 'B'}]", self.col("live" if s else "blank") | curses.A_BOLD)
+            self.put(top + 3, x0 + 4 * k + 1, str(k + 1), curses.A_DIM)
+        steps = 20
+        for k in range(steps):
+            bar = "█" * (steps - k) + " " * k
+            self.put(top + 5, left + (iw - steps) // 2, bar, self.col("item"))
+            self.scr.refresh()
+            time.sleep(0.1)  # a fixed two seconds regardless of animation speed
+        self.draw_board(g)
+        self.popup([("The picture fades.", curses.A_DIM)])
+        self.pause(0.6)
+
+    def anim_dice(self, g, idx, roll, text):
+        self.sound("dice")
+        p = g.players[idx]
+        self.draw_board(g)
+        for k in range(10):
+            face = random.randint(1, 6) if k < 9 else roll
+            self.popup([(f"{p.name.upper()} {g.v(p, 'roll').upper()} THE DICE", curses.A_BOLD), "",
+                        (f"┌───┐ {face}", self.col("item") | curses.A_BOLD), "", ""], width=32)
+            self.scr.refresh()
+            self.nap(0.06 + k * 0.015)
+        self.popup([(f"{p.name.upper()} {g.v(p, 'roll').upper()} THE DICE", curses.A_BOLD), "",
+                    (f"⚄  {roll}  ⚄", self.col("item") | curses.A_BOLD), "", text], width=max(32, len(text)))
+        self.pause(1.5)
+
+    def anim_trap(self, g, idx, label):
+        self.sound("trap")
+        p = g.players[idx]
+        if g.vs_ai and idx == 1:
+            self.set_face("hurt", 1.5)
+        self.shake(g)
+        self.draw_board(g)
+        self.popup([("¤ RIGGED!", self.col("live") | curses.A_BOLD), "",
+                    f"{g.poss(p).capitalize()} {label} was a decoy. -1 charge."], battr=self.col("live"))
+        self.pause(1.4)
 
     def play_events(self, g, events):
         for e in events:
@@ -1825,17 +2493,26 @@ class UI:
                 self.anim_shot(g, *e[1:])
             elif kind == "private":
                 self.private(g, *e[1:])
+            elif kind == "snapshot":
+                self.anim_snapshot(g, e[1], e[2])
+            elif kind == "dice":
+                self.anim_dice(g, e[1], e[2], e[3])
+            elif kind == "trap":
+                self.anim_trap(g, e[1], e[2])
             elif kind == "eject":
                 c = self.col("live" if e[1] else "blank")
+                self.sound("click")
                 self.draw_board(g)
                 self.popup(["The shell drops out:", "", ("LIVE" if e[1] else "BLANK", c | curses.A_BOLD)], battr=c)
                 self.pause(1.1)
             elif kind == "hurt":
                 if g.vs_ai and e[1] == 1:
                     self.set_face("hurt", 1.5)
+                self.sound("trap")
                 self.draw_board(g)
                 self.pause(0.8)
             else:
+                self.sound("item")
                 self.draw_board(g)
                 self.pause(0.5)
         self.draw_board(g)
@@ -1848,7 +2525,7 @@ class UI:
         suffix = f" (asking {label})" if worker else ""
         while True:
             done = worker is None or not worker.is_alive()
-            if done and time.time() - start >= min_time:
+            if done and time.time() - start >= min_time * self.speed:
                 break
             self.draw_board(g, status=f"{SPIN[k % len(SPIN)]} {who} is thinking...{suffix}")
             k += 1
@@ -1857,6 +2534,10 @@ class UI:
 
     # ═════════ dialogs ═════════
     def banner(self, g, title, lines, ck):
+        if ck == "live":
+            self.sound("lose")
+        elif ck == "hp":
+            self.sound("win")
         self.draw_board(g)
         c = self.col(ck)
         body = [(title, c | curses.A_BOLD), ""] + [l for l in lines if l]
@@ -1873,22 +2554,23 @@ class UI:
             if k in ("n", "N", "@n", "ESC"):
                 return False
 
-    def choose(self, g, title, options):
+    def choose(self, g, title, labels):
+        """Pick one of labels (up to 9). Returns the index or None."""
         self.draw_board(g)
         rows = [(title, curses.A_BOLD), ""]
-        rows += [f"[{k + 1}] {ITEMS[o]['label']:<9}{ITEMS[o]['short']}" for k, o in enumerate(options)]
+        rows += [f"[{k + 1}] {lbl}" for k, lbl in enumerate(labels)]
         rows += ["", ("number or click to pick · Esc cancel", curses.A_DIM)]
         top, left, iw = self.popup(rows, align="left")
-        for k in range(len(options)):
+        for k in range(len(labels)):
             self.hit(top + 2 + k, left, iw, f"@c:{k}")
         while True:
             k = self.wait_key()
             if k == "ESC":
                 return None
             if k.startswith("@c:"):
-                return options[int(k[3:])]
-            if len(k) == 1 and k.isdigit() and 1 <= int(k) <= len(options):
-                return options[int(k) - 1]
+                return int(k[3:])
+            if len(k) == 1 and k.isdigit() and 1 <= int(k) <= len(labels):
+                return int(k) - 1
 
     def handover(self, g):
         p = g.cur()
@@ -2001,15 +2683,30 @@ class UI:
 
     # ═════════ menu screens ═════════
     def main_menu(self, config, sel):
+        tick = 0
+        faces = {dk: "idle" for dk in DEALER_ORDER}
         while True:
+            tick += 1
+            if tick % 20 == 0:
+                dk = random.choice(DEALER_ORDER)
+                faces = {d: "idle" for d in DEALER_ORDER}
+                faces[dk] = random.choice(["grin", "think"])
             if self.frame():
+                flicker = random.random() < 0.05
+                tattr = (curses.A_DIM if flicker else curses.A_BOLD) | self.col("item")
                 for k, line in enumerate(TITLE_ART):
-                    self.centered(1 + k, line, self.col("item") | curses.A_BOLD)
+                    self.centered(1 + k, line, tattr)
                 self.centered(6, "a terminal duel of nerve, odds and one very loud gun", curses.A_DIM)
+                pattern = [True, False, True, True, False, False, True, False, True, False, False, True]
+                ticker_x = (W - 2 * 24) // 2
+                for k in range(24):
+                    live = pattern[(k + tick // 3) % len(pattern)]
+                    self.put(7, ticker_x + 2 * k, "▮", (self.col("live") if live else self.col("blank")) | curses.A_DIM)
                 self.box(8, 34, 10, 32, "MENU", curses.A_DIM)
                 for k, (_, label, _) in enumerate(MENU):
                     y = 9 + k
-                    self.put(y, 36, f" {k + 1}  {label}".ljust(28), self.sel_attr() if k == sel else 0)
+                    marker = "▶" if k == sel else " "
+                    self.put(y, 36, f"{marker} {k + 1}  {label}".ljust(28), self.sel_attr() if k == sel else 0)
                     self.hit(y, 35, 30, f"@menu:{k}")
                 self.centered(19, MENU[sel][2], curses.A_DIM)
                 for k, dk in enumerate(DEALER_ORDER):
@@ -2017,7 +2714,7 @@ class UI:
                     x = 8 + k * 23
                     locked = not config.unlocked(dk)
                     a = curses.A_DIM if locked else self.col(d["color"])
-                    for r, line in enumerate(portrait(d, "idle", locked)):
+                    for r, line in enumerate(portrait(d, faces[dk], locked)):
                         self.put(21 + r, x, line, a)
                         if not locked:
                             self.hit(21 + r, x, 15, f"@fight:{dk}")
@@ -2029,7 +2726,9 @@ class UI:
                 self.centered(28, st, curses.A_DIM if ck == "dim" else self.col(ck))
                 self.centered(29, "↑↓ move · Enter select · click a dealer to fight him · Q quit", curses.A_DIM)
                 self.scr.refresh()
-            k = self.getkey()
+            k = self.getkey(timeout=150)
+            if k == "TICK":
+                continue
             if k == "UP":
                 sel = (sel - 1) % len(MENU)
             elif k in ("DOWN", "TAB"):
@@ -2084,7 +2783,10 @@ class UI:
                         self.put(13 + r, 37, "• " + s)
                     self.put(17, 37, "CARRIES", curses.A_BOLD)
                     pool = sorted(d["pool"].items(), key=lambda kv: -kv[1])
-                    carries = ", ".join(ITEMS[k]["label"] for k, _ in pool) + ". You draw from the standard pool."
+                    if dk == "croupier":
+                        carries = "Everything. All 25 items."
+                    else:
+                        carries = ", ".join(f"{ITEMS[k]['icon']} {ITEMS[k]['label']}" for k, _ in pool) + "."
                     for r, l in enumerate(wrap(carries, 58)[:2]):
                         self.put(18 + r, 37, l)
                     rl = d["rules"]
@@ -2119,19 +2821,31 @@ class UI:
                 msg = "Locked. Beat any other dealer first."
 
     def item_guide(self):
-        sel = 0
+        sel, top_i, page = 0, 0, 22
         while True:
             it = ITEM_KEYS[sel]
             info = ITEMS[it]
+            if sel < top_i:
+                top_i = sel
+            if sel >= top_i + page:
+                top_i = sel - page + 1
             if self.frame():
-                self.centered(1, "ITEM GUIDE", self.col("item") | curses.A_BOLD)
-                self.box(3, 2, 11, 26, "ITEMS", curses.A_DIM)
-                for k, key in enumerate(ITEM_KEYS):
-                    self.put(4 + k, 4, f" {ITEMS[key]['label']}".ljust(22), self.sel_attr() if k == sel else 0)
-                    self.hit(4 + k, 3, 24, f"@i:{k}")
-                self.box(3, 30, 24, 68, info["label"].upper(), self.col("item"), curses.A_BOLD | self.col("item"))
+                self.centered(1, f"ITEM GUIDE · {len(ITEM_KEYS)} ITEMS", self.col("item") | curses.A_BOLD)
+                self.box(3, 2, 24, 26, "ITEMS", curses.A_DIM)
+                for r, key in enumerate(ITEM_KEYS[top_i:top_i + page]):
+                    k = top_i + r
+                    ii = ITEMS[key]
+                    self.put(4 + r, 4, f" {ii['icon']} {ii['label']}".ljust(22), self.sel_attr() if k == sel else 0)
+                    self.hit(4 + r, 3, 24, f"@i:{k}")
+                if top_i > 0:
+                    self.put(3, 22, " ▲ ", curses.A_DIM)
+                if top_i + page < len(ITEM_KEYS):
+                    self.put(26, 22, " ▼ ", curses.A_DIM)
+                self.box(3, 30, 24, 68, f"{info['icon']} {info['label'].upper()}", self.col("item"),
+                         curses.A_BOLD | self.col("item"))
                 y = 5
                 self.put(y, 33, info["short"][0].upper() + info["short"][1:], self.col("item") | curses.A_BOLD)
+                self.put(y, 96 - len(info["cat"]), info["cat"].upper(), curses.A_DIM)
                 y += 2
                 for head, body in (("WHAT IT DOES", info["desc"]), ("WHEN TO USE IT", info["tip"])):
                     self.put(y, 33, head, curses.A_BOLD)
@@ -2140,26 +2854,30 @@ class UI:
                         self.put(y, 33, l)
                         y += 1
                     y += 1
-                common = [DEALERS[d]["name"] for d in DEALER_ORDER if DEALERS[d]["pool"].get(it, 0) >= 3]
-                rare = [DEALERS[d]["name"] for d in DEALER_ORDER if 0 < DEALERS[d]["pool"].get(it, 0) < 3]
+                common = [DEALERS[d]["name"] for d in DEALER_ORDER[:3] if DEALERS[d]["pool"].get(it, 0) >= 3]
+                rare = [DEALERS[d]["name"] for d in DEALER_ORDER[:3] if 0 < DEALERS[d]["pool"].get(it, 0) < 3]
                 parts = []
                 if common:
                     parts.append("Common at: " + ", ".join(common) + ".")
                 if rare:
                     parts.append("Rare at: " + ", ".join(rare) + ".")
-                parts.append("You can always draw it from the standard pool.")
+                parts.append("The Croupier carries everything, and you can always draw it yourself.")
                 self.put(y, 33, "WHERE YOU'LL SEE IT", curses.A_BOLD)
                 y += 1
                 for l in wrap(" ".join(parts), 62):
                     self.put(y, 33, l)
                     y += 1
-                self.centered(29, "↑↓ browse · Esc back", curses.A_DIM)
+                self.centered(29, "↑↓ browse · PgUp/PgDn jump · Esc back", curses.A_DIM)
                 self.scr.refresh()
             k = self.getkey()
             if k == "UP":
                 sel = (sel - 1) % len(ITEM_KEYS)
             elif k in ("DOWN", "TAB"):
                 sel = (sel + 1) % len(ITEM_KEYS)
+            elif k == "PGUP":
+                sel = max(0, sel - 8)
+            elif k == "PGDN":
+                sel = min(len(ITEM_KEYS) - 1, sel + 8)
             elif k.startswith("@i:"):
                 sel = int(k[3:])
             elif k in ("ESC", "q", "Q", "ENTER"):
@@ -2207,75 +2925,110 @@ class UI:
         brain.reset()
         return f"Model set to {m}.", "hp"
 
+    @staticmethod
+    def _cycle(options, cur, step):
+        i = options.index(cur) if cur in options else 0
+        return options[(i + step) % len(options)]
+
     def settings(self, brain, config):
-        sel, note, note_ck = 0, "", "item"
+        sel, note, note_ck = 1, "", "item"
+        prefs = config.prefs
         while True:
             p = brain.provider
             info = PROVIDERS[p]
-            rows = [("Provider", f"◀ {info['label']} ▶", "provider",
-                     "Who plays the dealers. ←/→ or Enter to switch. 'Off' uses the built-in strategies.")]
+            rows = [{"kind": "header", "label": "AI BRAIN"},
+                    {"kind": "field", "label": "Provider", "value": f"◀ {info['label']} ▶", "tok": "provider",
+                     "help": "Who plays the dealers. ←/→ or Enter to switch. 'Off' uses the built-in strategies."}]
             if p != "off":
                 key, src = brain.key()
                 kv = f"{mask_key(key)}   ({src})" if key else "not set: press Enter to paste one"
-                eb = info.get("edit_base")
-                key_help = ("Enter to paste your SleepyAI key (sk-...) from the SleepyAI dashboard."
-                            if p == "sleepyai" else "Enter to paste your Gemini API key.")
+                key_help = ("Paste your SleepyAI key (sk-...) from the SleepyAI dashboard."
+                            if p == "sleepyai" else "Paste your Gemini API key.")
                 rows += [
-                    ("API key", kv, "key", key_help + " Stored in the macOS Keychain, never in a file."),
-                    ("Base URL", brain.base_url() or "(not set)", "base",
-                     f"Default {info.get('base')}. Enter to edit; clear it to reset."
-                     if eb else "Fixed for Gemini."),
-                    ("Model", brain.model() or "(not set: choose one below)", "model",
-                     "Enter to type a model ID, or pick one from the list below."),
-                    ("", "Choose model from list", "pick", "Fetches the models your key can use and lets you pick one."),
-                    ("", "Test connection", "test", "Sends one tiny request to check the key, URL and model."),
+                    {"kind": "field", "label": "API key", "value": kv, "tok": "key",
+                     "help": key_help + " Stored in the macOS Keychain, never in a file."},
+                    {"kind": "field", "label": "Base URL", "value": brain.base_url() or "(not set)", "tok": "base",
+                     "help": f"Default {info.get('base')}. Enter to edit; clear it to reset."
+                     if info.get("edit_base") else "Fixed for Gemini."},
+                    {"kind": "field", "label": "Model", "value": brain.model() or "(not set: choose one below)",
+                     "tok": "model", "help": "Enter to type a model ID, or pick one from the list below."},
+                    {"kind": "button", "value": "Choose model from list", "tok": "pick",
+                     "help": "Fetches the models your key can use and lets you pick one."},
+                    {"kind": "button", "value": "Test connection", "tok": "test",
+                     "help": "Sends one tiny request to check the key, URL and model."},
                 ]
                 if key and src in ("macOS Keychain", "this session only"):
-                    rows.append(("", "Remove saved key", "delkey", "Deletes this provider's key from the Keychain."))
-            rows.append(("", "Done", "done", "Back to the main menu."))
-            sel = max(0, min(sel, len(rows) - 1))
+                    rows.append({"kind": "button", "value": "Remove saved key", "tok": "delkey",
+                                 "help": "Deletes this provider's key from the Keychain."})
+            rows += [
+                {"kind": "header", "label": "DISPLAY & SOUND"},
+                {"kind": "field", "label": "Theme", "value": f"◀ {THEMES[prefs['theme']]['label']} ▶", "tok": "theme",
+                 "help": "Casino (classic reds), Neon (magenta and cyan) or Noir (black and white with red)."},
+                {"kind": "field", "label": "Sound", "value": f"◀ {'On' if prefs['sound'] else 'Off'} ▶", "tok": "sound",
+                 "help": "Plays built-in macOS system sounds for shots, reloads, items and wins."},
+                {"kind": "field", "label": "Animations", "value": f"◀ {prefs['speed'].title()} ▶", "tok": "speed",
+                 "help": "Normal, Fast or Turbo. Turbo skips the screen wipe and trims every pause."},
+                {"kind": "field", "label": "Mouse", "value": f"◀ {'On' if prefs['mouse'] else 'Off'} ▶", "tok": "mouse",
+                 "help": "Click items and buttons. Turn it off to select text in Terminal normally."},
+                {"kind": "button", "value": "Done", "tok": "done", "help": "Back to the main menu."},
+            ]
+            selectable = [k for k, r in enumerate(rows) if r["kind"] != "header"]
+            if sel not in selectable:
+                sel = min(selectable, key=lambda k: abs(k - sel))
             if self.frame():
                 self.centered(1, "SETTINGS", self.col("item") | curses.A_BOLD)
-                self.centered(2, "Connect Gemini or SleepyAI to play the dealers, or leave it off.", curses.A_DIM)
-                self.box(4, 10, len(rows) * 2 + 1, 80, "AI BRAIN", curses.A_DIM)
-                for k, (label, val, tok, _) in enumerate(rows):
-                    y = 5 + k * 2
-                    if label:
-                        self.put(y, 13, label, curses.A_BOLD)
-                        dim = tok == "base" and not info.get("edit_base")
-                        a = self.sel_attr() if k == sel else (curses.A_DIM if dim else 0)
-                        self.put(y, 26, f" {val} "[:62], a)
+                self.box(3, 10, len(rows) + 2, 80, "", curses.A_DIM)
+                for k, r in enumerate(rows):
+                    y = 4 + k
+                    if r["kind"] == "header":
+                        self.put(y, 13, f"── {r['label']} ".ljust(72, "─"), self.col("item") | curses.A_BOLD)
+                        continue
+                    a_sel = self.sel_attr() if k == sel else None
+                    if r["kind"] == "field":
+                        self.put(y, 13, r["label"], curses.A_BOLD)
+                        dim = r["tok"] == "base" and not info.get("edit_base")
+                        self.put(y, 26, f" {r['value']} "[:62], a_sel or (curses.A_DIM if dim else 0))
                     else:
-                        a = self.sel_attr() if k == sel else (self.col("item") | curses.A_BOLD)
-                        self.put(y, 26, f"[ {val} ]", a)
+                        self.put(y, 26, f"[ {r['value']} ]", a_sel or (self.col("item") | curses.A_BOLD))
                     self.hit(y, 12, 76, f"@row:{k}")
-                self.box(23, 10, 5, 80, "HELP", curses.A_DIM)
-                self.put(24, 13, rows[sel][3][:74], curses.A_DIM)
+                self.box(22, 10, 5, 80, "HELP", curses.A_DIM)
+                self.put(23, 13, rows[sel]["help"][:74], curses.A_DIM)
                 if note:
                     for r, l in enumerate(wrap(note, 74)[:2]):
-                        self.put(25 + r, 13, l, self.col(note_ck) | curses.A_BOLD)
-                self.centered(29, "↑↓ move · Enter select/edit · ←→ switch provider · Esc back", curses.A_DIM)
+                        self.put(24 + r, 13, l, self.col(note_ck) | curses.A_BOLD)
+                self.centered(29, "↑↓ move · Enter select/edit · ←→ change · Esc back", curses.A_DIM)
                 self.scr.refresh()
             k = self.getkey()
             if k.startswith("@row:"):
                 sel = int(k[5:])
                 k = "ENTER"
-            tok = rows[sel][2]
+            tok = rows[sel]["tok"]
             if k == "UP":
-                sel = (sel - 1) % len(rows)
+                sel = selectable[(selectable.index(sel) - 1) % len(selectable)]
                 continue
             if k in ("DOWN", "TAB"):
-                sel = (sel + 1) % len(rows)
+                sel = selectable[(selectable.index(sel) + 1) % len(selectable)]
                 continue
             if k in ("ESC", "q", "Q"):
                 return
-            if tok == "provider" and k in ("LEFT", "RIGHT", "ENTER", " "):
-                i = PROVIDER_ORDER.index(p) if p in PROVIDER_ORDER else 0
-                i = (i + (-1 if k == "LEFT" else 1)) % len(PROVIDER_ORDER)
-                config.data["provider"] = PROVIDER_ORDER[i]
+            step = -1 if k == "LEFT" else 1
+            if k in ("LEFT", "RIGHT", "ENTER", " ") and tok in ("provider", "theme", "sound", "speed", "mouse"):
+                if tok == "provider":
+                    config.data["provider"] = self._cycle(PROVIDER_ORDER, p, step)
+                    brain.reset()
+                    note = ""
+                elif tok == "theme":
+                    prefs["theme"] = self._cycle(THEME_ORDER, prefs["theme"], step)
+                    self.apply_theme()
+                elif tok == "sound":
+                    prefs["sound"] = not prefs["sound"]
+                    self.sound("item")
+                elif tok == "speed":
+                    prefs["speed"] = self._cycle(list(SPEEDS), prefs["speed"], step)
+                elif tok == "mouse":
+                    prefs["mouse"] = not prefs["mouse"]
+                    self.apply_mouse()
                 config.save()
-                brain.reset()
-                note = ""
                 continue
             if k not in ("ENTER", " "):
                 continue
@@ -2352,14 +3105,14 @@ def decide(ui, g, i, brain, step, force_shot=False):
 
 def ai_turn(ui, g, brain):
     i = g.turn
-    for step in range(12):
+    for step in range(14):
         if g.stage_winner is not None or g.turn != i or g.needs_reload:
             break
-        d = decide(ui, g, i, brain, step, force_shot=(step == 11))
+        d = decide(ui, g, i, brain, step, force_shot=(step == 13))
         if d.get("taunt"):
             ui.speech = d["taunt"]
         if d["action"] == "use_item":
-            ok, _, ev = g.use_item(i, d["item"], d.get("steal"))
+            ok, _, ev = g.use_item(i, d["item"], d.get("arg"))
             if ok:
                 ui.play_events(g, ev)
                 continue
@@ -2379,6 +3132,37 @@ def give_tip(ui, g):
     ui.set_face("grin", 1.5)
     ui.draw_board(g)
     ui.pause(1.2)
+
+
+def item_args(ui, g, i, entry):
+    """Ask the player for whatever an item needs. Returns (ok, arg)."""
+    b = base(entry)
+    o = g.players[1 - i]
+    if b == "hook":
+        opts = g.stealable(i)
+        k = ui.choose(g, "↩ HOOK: steal which item?", [item_line(x) for x in opts])
+        return (k is not None), (opts[k] if k is not None else None)
+    if b == "crowbar":
+        opts = list(o.items)
+        k = ui.choose(g, "⌐ CROWBAR: smash which item?", [item_line(x) for x in opts])
+        return (k is not None), (opts[k] if k is not None else None)
+    if b == "decoy":
+        k = ui.choose(g, "¤ DECOY: disguise the gift as...", [item_line(x) for x in DECOY_FORMS])
+        return (k is not None), (DECOY_FORMS[k] if k is not None else None)
+    if b == "slip":
+        k = ui.choose(g, "↧ SLIP: which shell?", ["LIVE shell", "BLANK shell"])
+        if k is None:
+            return False, None
+        n = g.left()
+        labels = []
+        for j in range(1, n + 2):
+            tag = " (chamber: fires next)" if j == 1 else (" (bottom of the gun)" if j == n + 1 else "")
+            labels.append(f"Position {j}{tag}")
+        k2 = ui.choose(g, "↧ SLIP: where?", labels)
+        if k2 is None:
+            return False, None
+        return True, {"live": k == 0, "pos": k2 + 1}
+    return True, None
 
 
 def human_action(ui, g):
@@ -2436,17 +3220,15 @@ def human_action(ui, g):
     if kind == "btn":
         ui.play_events(g, g.shoot(i, val == "self"))
         return None
-    it = p.items[val]
-    ok, msg = g.can_use(i, it)
+    entry = p.items[val]
+    ok, msg = g.can_use(i, entry)
     if not ok:
         ui.msg = msg
         return None
-    steal = None
-    if it == "hook":
-        steal = ui.choose(g, "HOOK: steal which item?", g.stealable(i))
-        if steal is None:
-            return None
-    ok, msg, ev = g.use_item(i, it, steal)
+    ok, arg = item_args(ui, g, i, entry)
+    if not ok:
+        return None
+    ok, msg, ev = g.use_item(i, entry, arg)
     if ok:
         ui.play_events(g, ev)
     else:
@@ -2524,6 +3306,7 @@ def run_game(ui, brain, config, mode, dealer_key=None):
         g = Game("gauntlet", ["You", "?"], vs_ai=True)
     brain.reset()
     ui.new_game()
+    ui.wipe()
     ui.play_events(g, g.start_stage())
     last = None
     while True:
@@ -2532,6 +3315,7 @@ def run_game(ui, brain, config, mode, dealer_key=None):
                 return
             ui.speech = ""
             ui.focus = 0
+            ui.wipe()
             ui.play_events(g, g.start_stage())
             last = None
             continue
@@ -2553,7 +3337,7 @@ def run_game(ui, brain, config, mode, dealer_key=None):
 def main(scr, offline=False):
     config = Config()
     brain = Brain(config, offline)
-    ui = UI(scr)
+    ui = UI(scr, config)
     ui.brain = brain
     sel = 0
     while True:
