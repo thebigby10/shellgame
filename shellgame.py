@@ -2172,8 +2172,8 @@ class UI:
                     ("API key", kv, "key",
                      "Enter to paste a key. It's stored in the macOS Keychain (service 'shellgame'), never in a file."),
                     ("Base URL", brain.base_url() or "(not set)", "base",
-                     "The OpenAI-compatible endpoint, usually ending in /v1. Enter to edit."
-                     if eb else "Fixed for this provider. Pick 'Custom' to use another endpoint."),
+                     "OpenAI-compatible endpoint, usually ending in /v1. Enter to edit; clear it to reset."
+                     if eb else "Fixed for Gemini. Pick an OpenAI-compatible provider to set your own URL."),
                     ("Model", brain.model() or "(not set)", "model",
                      "Enter to type a model ID, or pick one from the list below."),
                     ("", "Choose model from list", "pick", "Fetches the models your key can use and lets you pick one."),
