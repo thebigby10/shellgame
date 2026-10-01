@@ -6,7 +6,7 @@ Shell Game is a turn-based terminal game for macOS, inspired by Buckshot Roulett
 
 It's a single Python file with no dependencies beyond the standard library.
 
-**Current version: 3.5** (Step 6 of the roadmap). See the [version history](#version-history) and [more to come](#more-to-come).
+**Current version: 3.6** (Step 7 of the roadmap). See the [version history](#version-history) and [more to come](#more-to-come).
 
 ---
 
@@ -94,9 +94,9 @@ The **TABLE** panel shows:
 
 | Mode | Description |
 |---|---|
-| **Duel** | Pick a dealer and survive three stages. You can also click a dealer's portrait on the main menu. |
-| **Gauntlet** | Endless. You face every dealer in turn, stopping at a shop between stages. After each stage you can cash out or go double or nothing: clear the next stage and your score doubles; die and you lose it all. |
-| **Daily challenge** | The date picks one dealer and one mutator for everyone. Every reload is generated from the date, so all players get the same shells, table events and item draws. Shows today's and yesterday's best. |
+| **Duel** | Pick one of six dealers and survive three stages. You can also click a dealer's portrait on the main menu. |
+| **Gauntlet** | Endless. You face every dealer in turn (Accountant → Gambler → Liar → Magician → Twins → Croupier), stopping at a shop between stages. After each stage you can cash out or go double or nothing: clear the next stage and your score doubles; die and you lose it all. |
+| **Daily challenge** | The date picks one of the six dealers and one mutator for everyone. Every reload is generated from the date, so all players get the same shells, table events and item draws. Shows today's and yesterday's best. |
 | **Classic** | Only the five original items (Loupe, Rack, Saw, Shackles, Tonic), with no events, misfires, sudden death, tells, tilt, bluffs, house rules, mutators, draft or shot clock. Play against The Dealer or in hot-seat. |
 | **Hot-seat** | Two people, one keyboard, best of three stages, with the full rules. A "pass the keyboard" screen appears between turns, and you get a privacy screen before secret reveals. |
 
@@ -109,19 +109,23 @@ The **TABLE** panel shows:
 | **The Accountant** | Easy | 1.0 | Always peeks before shooting, shoots only on good odds, wears a Vest, heals at once | **Audit:** use 3 items in one turn and he confiscates one of yours | Honest (about 75%) |
 | **The Gambler** | Easy | 1.0 | Shoots himself on 50/50s, loves the Saw, Double, Dice and Pills | **High Roller:** once per stage, the next two shots are blind (no items, no counter) | Honest (about 80%) |
 | **The Liar** | Medium | 1.5 | Rigged gifts, Slip, Shuffle, Ricochet, Muzzle, Hook | **Tips:** after each of his turns he tips you about the chambered shell. Press C to call his bluff | Faked (about 30%) |
+| **The Magician** | Tricky | 1.75 | Shuffle, Slip, Flipper, Snapshot, Decoy, Hook, Rewind, Radio; plays on what he saw during his trick | **Sleight of Hand:** on his first turn of each load, a coin flip decides whether he swaps the next two shells. Your knowledge of both (Tarot readings included) is wiped; he knows both either way | Pure noise (50%) |
+| **The Twins** (Vera & Vex) | Hard | 2.0 | Vera plays like the Accountant, Vex like the Gambler; they share one hand drawn from both pools | **Seat Swap:** one set of charges, and they swap seats after every turn. The header and portrait show who's in the seat | Vera honest (80%), Vex fake (25%) |
 | **The Croupier** | Hard · Boss | 2.5 | Near-optimal play; uses every item | **House Edge:** he sees the first shell of every load. The shell counter is hidden at his table, and he never tilts | None |
 | **The Dealer** | Classic | 1.0 | Plays sensibly with the five classic items | None | None |
 
 - **The Croupier is locked** until you beat any dealer in a three-stage duel, or clear stage 3 of the Gauntlet.
+- **The Twins are locked** until you beat the Croupier in a duel, or clear his stage in the Gauntlet. The Gauntlet and the Daily can seat any dealer, locked or not.
 - **Tells:** when a new shell enters the chamber on your turn, the dealer may react. A sweating face means he thinks it's live; a smug face means blank. A line also appears under his items. How reliable this is depends on the dealer, as shown in the table.
-- **Tilt:** hit a dealer twice in a row and he tilts. The Accountant turns reckless, the Gambler turns timid, and the Liar's tips and tells turn honest. He calms down as soon as he lands a hit on you.
+- **Tilt:** hit a dealer twice in a row and he tilts. The Accountant turns reckless, the Gambler turns timid, the Liar's tips and tells turn honest, and the Magician's hands shake too much for his trick. He calms down as soon as he lands a hit on you.
+- **Bickering:** the Twins don't tilt. Hit them twice in a row and the twin in the seat takes the blame and sits out; the other one plays every turn (shown as BICKERING · VEX PLAYS) until they land a hit on you, then the seat swap resumes.
 - **Calling the bluff:** after the Liar's tip, press **C**. If he lied, he loses 1 charge and you score a bonus. If he told the truth, you lose 1 charge. The shell is revealed either way.
 
 ---
 
 ## Items
 
-There are 25 items. You draw from all of them; each dealer draws from his own pool. A ★ marks the five items used in Classic mode.
+There are 25 items. You draw from all of them; each dealer draws from their own pool. A ★ marks the five items used in Classic mode.
 
 | | Item | Category | Effect |
 |---|---|---|---|
@@ -157,7 +161,7 @@ The in-game **Item guide** shows each item's full description, a tip on when to 
 
 ## Table events
 
-Each reload, except the very first one of a run, has a 55% chance of flipping an event card. The event bends the rules until the next reload.
+Each reload, except the very first one of a run, has a 55% chance of flipping one of 13 event cards. The event bends the rules until the next reload.
 
 | Event | Effect |
 |---|---|
@@ -168,6 +172,12 @@ Each reload, except the very first one of a run, has a 55% chance of flipping an
 | ▲ **Hot Barrel** | The last shell is guaranteed live, and everyone knows it (unless someone shuffles). |
 | ◷ **Rush Hour** | A 10-second shot clock runs on every human decision. |
 | ☾ **Blood Moon** | Every hit on your opponent heals you 1 charge. |
+| ≡ **Heavy Load** | Two extra shells, one live and one blank. |
+| ░ **Fog** | Only the total number of shells is shown: the load, LOADED row, LEFT counter and odds hide the mix. The dealers can't count it either; the SPENT row, your reads and Tarot still work. |
+| ⇆ **Swap Meet** | Each player hands the other a random item (skipped if there's nothing to give or no room). |
+| * **Cold Feet** | A blank at yourself no longer gives you an extra turn. |
+| 1 **Last Call** | Each player can use only one item this load (a Hooked item counts). |
+| $ **Lucky Streak** | Each player's first blank at their own head earns them a random item. |
 
 ## Other rules
 
@@ -225,8 +235,8 @@ All points are multiplied by the dealer's score multiplier and by any active mut
 The **Career** screen on the main menu has three tabs:
 
 - **Stats:** runs, wins, stages, best score, best Gauntlet run, shots and hit rate, damage dealt and taken, bluffs called and caught, dealers tilted, hot-seat matches, your win rate against each dealer, and your five most-used items.
-- **Achievements:** all 30, showing unlock dates and your progress where that applies.
-- **High scores:** tables for each dealer, the Gauntlet, today's Daily and Classic.
+- **Achievements:** all 34, in two columns, showing unlock dates and your progress where that applies.
+- **High scores:** a 3×3 grid of tables: each of the six dealers, the Gauntlet, today's Daily and Classic.
 
 Only finished runs count, whether you win, die or cash out. Quitting to the menu mid-run doesn't count.
 
@@ -237,7 +247,9 @@ Only finished runs count, whether you win, die or cash out. Quitting to the menu
 | House Money | Beat the Gambler in a duel |
 | Lie Detector | Beat the Liar in a duel |
 | Breaking the Bank | Beat the Croupier in a duel |
-| Full House | Beat all four dealers in duels |
+| Trick or Treat | Beat the Magician in a duel |
+| Seeing Double | Beat the Twins in a duel |
+| Full House | Beat all six dealers in duels |
 | Old School | Win a Classic duel |
 | Daily Grind | Win a Daily challenge |
 | Iron Will | Clear 5 stages in one Gauntlet run |
@@ -256,6 +268,8 @@ Only finished runs count, whether you win, die or cash out. Quitting to the menu
 | Gift Receipt | A dealer gets hurt by your rigged Decoy |
 | Devil's Due | Sign a Pact and win that stage |
 | Last Man Standing | Win a stage that went to sudden death |
+| Storm Chaser | See all 13 table events (across finished runs) |
+| Fog of War | Win a stage played under Fog |
 | Dud | Survive a live shell to your own head thanks to a misfire |
 | Clean Audit | Get audited by the Accountant and still win the stage |
 | Tilt Master | Tilt dealers 10 times in total |
@@ -282,7 +296,8 @@ By default, the dealers use built-in strategies that match their personalities. 
 
 How the AI plays:
 - It makes one decision at a time and returns JSON. It's asked again after every item it uses.
-- Each dealer has his own personality prompt. A tilted dealer gets a different prompt, and Classic mode uses a trimmed rules prompt.
+- Each dealer has their own personality prompt, and each Twin has their own. A tilted dealer (or a bickering Twin) gets an extra instruction, and Classic mode uses a trimmed rules prompt.
+- The Magician's trick is played by the game itself, not the AI; afterwards the AI sees both shells in its known shells. Under Fog the live/blank counts are left out of the AI's game state.
 - Replies are validated. Anything invalid falls back to the built-in strategy for that decision.
 - After 3 failed requests in a row, the built-in strategy takes over for the rest of the game.
 - SleepyAI requests use `stream: false`, with a fallback that reads a streamed response if one comes back anyway. Gemini requests use JSON mode with a low thinking level (medium for the Croupier).
@@ -323,12 +338,16 @@ The self-test plays thousands of games without a real terminal, across every mod
 - that no turn starts with an empty gun
 - that Classic mode stays classic
 - that every game ends
+- that Last Call allows one item, Cold Feet never gives an extra turn and Heavy Load adds its two shells
+- that under Fog the dealers never deduce a shell from the counts, and the counts never reach the AI state
+- that Sleight of Hand happens at most once a load, wipes your reads and leaves the Magician knowing both shells
+- that the Twins swap seats after every turn, never mid-turn, and that a bickering twin stays in the seat until they land a hit
 
 It also:
 - feeds malformed AI replies through the validator
 - builds the AI prompt and state
 - draws one game in ten, plus every Career tab, through the real UI on a fake screen
-- reports how many achievements the simulated player unlocked
+- reports how many achievements the simulated player unlocked, and which table events it saw
 
 It never touches your settings, scores or stats files. If something breaks, it prints a seed you can replay with `--selftest-game`.
 
@@ -357,6 +376,14 @@ It never touches your settings, scores or stats files. If something breaks, it p
 ---
 
 ## Version history
+
+### 3.6: New content *(Step 7)*
+- **The Magician** (Tricky, ×1.75): Sleight of Hand, pure-noise tells, and his own portrait, prompt and strategy.
+- **The Twins, Vera and Vex** (Hard, ×2, unlocked by beating the Croupier): shared charges, a seat swap after every turn, and bickering instead of tilt.
+- **Six new table events** (13 in total): Heavy Load, Fog, Swap Meet, Cold Feet, Last Call and Lucky Streak.
+- **Four new achievements** (34 in total), and Full House now needs all six dealers.
+- Six-dealer main menu, dealer select, Gauntlet order and Daily; a compact per-dealer stats list, a 3×3 high-score grid and two columns of 17 achievements.
+- The self-test covers the new dealers and events, and reports which table events it saw.
 
 ### 3.5: Career and achievements *(Step 6)*
 - New **Career** screen replaces "High scores". It has three tabs: Stats, Achievements and High scores.
@@ -407,59 +434,7 @@ It never touches your settings, scores or stats files. If something breaks, it p
 
 ## More to come
 
-### Step 7: new content *(next)*
-
-**The Magician** (new dealer, available from the start)
-- Tier: Tricky. Score ×1.75.
-- **House rule, Sleight of Hand:** once per load he passes his hands over the gun and may or may not swap the next two shells. Your knowledge of both shells, including Tarot readings, is wiped. He still knows.
-- **Tells:** pure noise, right only 50% of the time.
-- **Tilt:** his hands shake and he can't do the trick until he calms down.
-- **Item pool:** Shuffle, Slip, Flipper, Snapshot, Decoy, Hook, Rewind, Radio.
-- Gets his own portrait, prompt and strategy.
-
-**The Twins, Vera and Vex** (new dealer, unlocked by beating the Croupier)
-- Tier: Hard. Score ×2.
-- **House rule, Seat Swap:** they share one set of charges and swap seats every turn. The header and portrait show who's playing.
-
-  | Twin | Plays like | Tells |
-  |---|---|---|
-  | **Vera** | the Accountant: careful | honest, right 80% of the time |
-  | **Vex** | the Gambler: reckless | fake, right only 25% of the time |
-
-- They don't tilt; they bicker instead.
-
-**Six new table events** (13 in total)
-
-| Event | Effect |
-|---|---|
-| ≡ **Heavy Load** | Two extra shells, one live and one blank. |
-| ░ **Fog** | Only the total number of shells is shown; no counter. |
-| ⇆ **Swap Meet** | Each player hands the other a random item. |
-| * **Cold Feet** | A blank at yourself no longer gives you an extra turn. |
-| 1 **Last Call** | Each player can use only one item this load. |
-| $ **Lucky Streak** | Your first blank at your own head earns you a random item. |
-
-**Five new achievements** (34 in total)
-
-| Achievement | How to unlock |
-|---|---|
-| Trick or Treat | Beat the Magician in a duel |
-| Seeing Double | Beat the Twins in a duel |
-| Storm Chaser | See all 13 table events |
-| Fog of War | Win a stage played under Fog |
-| Full House (updated) | Beat all six dealers |
-
-**UI updates for six dealers**
-- A six-portrait lineup on the main menu and a six-entry dealer select screen.
-- The Gauntlet order becomes Accountant → Gambler → Liar → Magician → Twins → Croupier.
-- The Daily can draw any of the six dealers.
-- A compact per-dealer stats list and a 3×3 grid of high-score tables.
-- Two columns of 17 achievements, plus updates to the Item guide and How to play.
-
-**Self-test additions**
-- Covers the new dealers and events.
-- New checks for Last Call, Cold Feet, Heavy Load, Fog, Sleight of Hand and the Twins' turn order.
-- Reports which table events the simulation saw.
+Nothing is scheduled after Step 7 yet.
 
 ### Not planned
 - **3–4 player hot-seat.** Dropped; hot-seat stays two players.
