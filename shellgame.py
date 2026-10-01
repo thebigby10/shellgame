@@ -30,7 +30,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 
 os.environ.setdefault("ESCDELAY", "25")
 
@@ -43,22 +43,23 @@ API_TIMEOUT = 25
 CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
 KEYCHAIN_SERVICE = "shellgame"
-USER_AGENT = "ShellGame/3.2 (+terminal game)"
+USER_AGENT = "ShellGame/3.3 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 SOUND_DIR = "/System/Library/Sounds"
 SOUNDS = {"bang": "Basso", "click": "Tink", "load": "Pop", "item": "Morse", "win": "Hero",
           "lose": "Sosumi", "dice": "Bottle", "trap": "Funk", "reveal": "Glass", "event": "Purr",
-          "sudden": "Submarine"}
+          "sudden": "Submarine", "buy": "Ping"}
 SPEEDS = {"normal": 1.0, "fast": 0.55, "turbo": 0.25}
 CLOCK_OPTIONS = ["off", "20", "15", "10"]
 DEFAULT_PREFS = {"theme": "casino", "sound": True, "speed": "normal", "mouse": True,
-                 "events": True, "misfires": True, "clock": "off"}
+                 "events": True, "misfires": True, "clock": "off", "draft": False}
 MISFIRE_CHANCE = 0.05
 EVENT_CHANCE = 0.55
 RUSH_SECONDS = 10
 TELL_CHANCE = 0.45
 HIGH_ROLLER_CHANCE = 0.35
 BLUFF_BONUS = 250
+DRAFT_MAX = 10
 
 ROLES = ["live", "blank", "item", "hp", "dealer", "flash", "title"]
 THEMES = {
@@ -92,6 +93,30 @@ EVENTS = {
               "desc": "Every hit on your opponent heals you 1 charge this load."},
 }
 EVENT_KEYS = list(EVENTS)
+
+MUTATORS = {
+    "noheal": {"label": "No Healing", "mult": 1.5,
+               "desc": "Tonic, Pills, Leech, Blood Moon and Dice never heal anyone."},
+    "peek": {"label": "Dealer's Eye", "mult": 2.0,
+             "desc": "The dealer sees the first shell of every load."},
+    "dark": {"label": "Lights Out", "mult": 1.5,
+             "desc": "The LEFT counter is always off. Count the SPENT row."},
+    "glass": {"label": "Glass Cannon", "mult": 1.5,
+              "desc": "Every live shell deals 1 extra damage, for both of you."},
+    "pockets": {"label": "Empty Pockets", "mult": 2.0,
+                "desc": "You draw 1 fewer item every load."},
+}
+MUTATOR_ORDER = list(MUTATORS)
+
+PERKS = {
+    "thick": {"label": "Thick Skin", "cost": 2000, "max": 2, "desc": "+1 max charge for the rest of the run."},
+    "pockets": {"label": "Deep Pockets", "cost": 2500, "max": 2, "desc": "Draw 1 extra item every load."},
+    "keen": {"label": "Keen Eye", "cost": 3000, "max": 1, "desc": "You see the first shell of every load."},
+    "vest": {"label": "Iron Vest", "cost": 1500, "max": 1, "desc": "Start every stage wearing a Vest."},
+    "counter": {"label": "Card Counter", "cost": 1500, "max": 1,
+                "desc": "Your LEFT counter works at every table, even in a Blackout."},
+    "sense": {"label": "Sixth Sense", "cost": 1200, "max": 1, "desc": "Dealer tells show up twice as often."},
+}
 
 
 def _item(label, icon, cat, short, weight, desc, tip):
@@ -214,6 +239,18 @@ STANDARD_RULES = {"hp": [2, 4, 5], "you_items": [2, 2, 3], "dealer_items": [2, 2
 def base(entry):
     """Inventory entries are item keys, or 'trap:<key>' for a rigged Decoy."""
     return entry[5:] if entry.startswith("trap:") else entry
+
+
+def shop_price(item, stage):
+    raw = {3: 300, 2: 500, 1: 800}.get(ITEMS[item]["weight"], 500) * (1 + 0.25 * (stage - 1))
+    return int(round(raw / 50.0) * 50)
+
+
+def mutator_mult(muts):
+    m = 1.0
+    for k in muts:
+        m *= MUTATORS[k]["mult"]
+    return m
 
 
 GENERIC_EYES = {"idle": "(o) (o)", "hurt": "(x) (x)", "grin": "(^) (^)", "think": "(-) (o)", "dead": "(+) (+)",
@@ -372,6 +409,13 @@ FRIENDLY_HTTP = {401: "invalid or missing API key", 403: "model disabled or acce
                  429: "rate or spending limit exceeded", 502: "upstream provider error",
                  503: "model temporarily unavailable"}
 
+
+def daily_setup(seed):
+    """Today's dealer and mutator, the same for everyone."""
+    rng = random.Random("daily:" + seed)
+    return rng.choice(DEALER_ORDER), rng.choice(MUTATOR_ORDER)
+
+
 # ═════════════════════════════ art ═════════════════════════════
 _LETTERS = {
     "S": [" ___ ", "/ __|", "\\__ \\", "|___/"],
@@ -471,8 +515,10 @@ class Player:
 class Game:
     def __init__(self, mode, names, vs_ai, dealer_key=None, opts=None):
         self.mode, self.vs_ai, self.dealer_key = mode, vs_ai, dealer_key
-        self.opts = {"events": True, "misfires": True}
+        self.opts = {"events": True, "misfires": True, "draft": False, "mutators": [], "seed": None}
         self.opts.update(opts or {})
+        self.mutators = set(self.opts["mutators"])
+        self.seed = self.opts["seed"]
         self.players = [Player(names[0]), Player(names[1], is_ai=vs_ai)]
         self.stage = 0
         self.shells, self.pos, self.spent = [], 0, []
@@ -491,6 +537,11 @@ class Game:
         self.double_pending = False
         self.pending_tip = False
         self.fx = []
+        self.perks = {}
+        self.bought = []
+        self.draft_pool = None
+        self.draft_quota = {}
+        self.draft_turn = 0
         self._reset_mind()
 
     def _reset_mind(self):
@@ -513,11 +564,32 @@ class Game:
         d = self.dealer
         return d["rules"] if d else STANDARD_RULES
 
-    def counter_on(self):
-        return self.rules["counter"] and self.event != "blackout" and not self.blind
+    @property
+    def mult(self):
+        return self.rules["mult"] * mutator_mult(self.mutators)
+
+    def score_key(self):
+        if self.seed:
+            return f"daily:{self.seed}"
+        if self.mode == "gauntlet":
+            return "gauntlet"
+        return f"duel:{self.dealer_key}"
+
+    def run_tag(self):
+        if not self.mutators:
+            return ""
+        return " [" + ", ".join(MUTATORS[m]["label"] for m in sorted(self.mutators)) + "]"
+
+    def counter_on(self, viewer=None):
+        if self.blind or "dark" in self.mutators:
+            return False
+        if viewer == 0 and self.perks.get("counter"):
+            return True
+        return self.rules["counter"] and self.event != "blackout"
 
     def live_damage(self, first=True):
-        return (2 if (self.sawed and first) else 1) + (1 if self.event == "stakes" else 0)
+        return ((2 if (self.sawed and first) else 1) + (1 if self.event == "stakes" else 0)
+                + (1 if "glass" in self.mutators else 0))
 
     # ── language helpers
     def v(self, p, verb):
@@ -554,7 +626,7 @@ class Game:
         del self.log[:-200]
 
     def award(self, pts):
-        pts = int(pts * self.rules["mult"])
+        pts = int(pts * self.mult)
         self.score += pts
         return pts
 
@@ -614,6 +686,11 @@ class Game:
             p.hp = p.max_hp = hp
             p.items = []
             p.reset_status()
+        you = self.players[0]
+        if self.perks.get("thick"):
+            you.hp = you.max_hp = hp + self.perks["thick"]
+        if self.perks.get("vest"):
+            you.vest = 1
         self.sawed = self.double = self.jammed = False
         self.sudden = False
         self.loads = 0
@@ -624,22 +701,34 @@ class Game:
         self.turn = 0 if self.vs_ai else (self.stage - 1) % 2
         intro = f" · {self.players[1].name} sits down" if self.mode == "gauntlet" else ""
         self.add_log(f"── STAGE {self.stage}{intro} · {hp} charges ──", "title")
+        if self.bought:
+            you.items = self.bought[:MAX_ITEMS]
+            self.bought = []
+            self.add_log("You bring from the shop: " + ", ".join(ITEMS[x]["label"] for x in you.items) + ".", "item")
         return self.reload()
+
+    def _rng(self):
+        """Daily runs derive every load from the date, so everyone gets the same gun and draws."""
+        if self.seed:
+            return random.Random(f"{self.seed}:{self.stage}:{self.loads}")
+        return random
 
     def reload(self):
         self.needs_reload = False
         self.loads += 1
         self.event = None
+        rng = self._rng()
         first_ever = self.stage == 1 and self.loads == 1
-        if self.opts["events"] and not first_ever and random.random() < EVENT_CHANCE:
-            self.event = random.choice(EVENT_KEYS)
+        roll = rng.random()
+        if self.opts["events"] and not first_ever and roll < EVENT_CHANCE:
+            self.event = rng.choice(EVENT_KEYS)
         lo, hi = {1: (2, 4), 2: (3, 6)}.get(self.stage, (4, 8))
-        n = random.randint(lo, hi)
-        live = random.randint(max(1, n // 2 - 1), min(n - 1, (n + 1) // 2 + 1))
+        n = rng.randint(lo, hi)
+        live = rng.randint(max(1, n // 2 - 1), min(n - 1, (n + 1) // 2 + 1))
         self.shells = [True] * live + [False] * (n - live)
-        random.shuffle(self.shells)
+        rng.shuffle(self.shells)
         if self.event == "hot" and not self.shells[-1]:
-            j = random.choice([k for k, v in enumerate(self.shells) if v])
+            j = rng.choice([k for k, v in enumerate(self.shells) if v])
             self.shells[j], self.shells[-1] = self.shells[-1], self.shells[j]
         self.pos, self.spent, self.loaded = 0, [], (live, n - live)
         self.sawed = False
@@ -651,29 +740,89 @@ class Game:
         if self.event:
             e = EVENTS[self.event]
             self.add_log(f"TABLE EVENT {e['icon']} {e['label']}: {e['desc']}", "title")
-        if self.vs_ai and self.dealer_key == "croupier":
+        if self.vs_ai and (self.dealer_key == "croupier" or "peek" in self.mutators):
             self.players[1].known[0] = self.shells[0]
-            self.add_log("House edge: the Croupier glances at the first shell.", "dealer")
+            self.add_log(f"{self.players[1].name} glances at the first shell.", "dealer")
+        if self.vs_ai and self.perks.get("keen"):
+            self.players[0].known[0] = self.shells[0]
+            self.add_log("Keen Eye: you catch a glimpse of the first shell.", "hp")
+
         bonus = 2 if self.event == "generous" else 0
+        quota = {}
         for idx, p in enumerate(self.players):
             dealer_side = self.vs_ai and idx == 1
-            pool = self.dealer["pool"] if dealer_side else STANDARD_POOL
             k = self._scaled("dealer_items" if dealer_side else "you_items", 6) + bonus
-            keys = list(pool)
-            weights = [pool[x] for x in keys]
+            if idx == 0 and self.vs_ai:
+                k += self.perks.get("pockets", 0) - (1 if "pockets" in self.mutators else 0)
+            quota[idx] = max(0, min(k, MAX_ITEMS - len(p.items)))
+
+        ev = [("load", live, n - live)]
+        if self.event:
+            ev.append(("event", self.event))
+        if self.opts["draft"] and sum(quota.values()) > 0:
+            size = min(DRAFT_MAX, sum(quota.values()))
+            pool = []
+            for s in range(size):
+                src = self.dealer["pool"] if (self.vs_ai and s % 2 == 1) else STANDARD_POOL
+                keys = list(src)
+                pool.append(rng.choices(keys, weights=[src[x] for x in keys])[0])
+            self.draft_pool = pool
+            self.draft_quota = quota
+            self.draft_turn = (self.stage + self.loads) % 2
+            self.add_log(f"DRAFT: {size} items on the table. Take turns picking.", "item")
+            ev.append(("draft",))
+            return ev
+        for idx, p in enumerate(self.players):
+            src = self.dealer["pool"] if (self.vs_ai and idx == 1) else STANDARD_POOL
+            keys = list(src)
+            weights = [src[x] for x in keys]
             got = []
-            for _ in range(k):
-                if len(p.items) >= MAX_ITEMS:
-                    break
-                it = random.choices(keys, weights=weights)[0]
+            for _ in range(quota[idx]):
+                it = rng.choices(keys, weights=weights)[0]
                 p.items.append(it)
                 got.append(ITEMS[it]["label"])
             if got:
                 self.add_log(f"{p.name} {self.v(p, 'draw')}: {', '.join(got)}.", "item")
-        ev = [("load", live, n - live)]
-        if self.event:
-            ev.append(("event", self.event))
         return ev
+
+    # ── draft
+    def draft_next(self):
+        """Index of the player who picks next, or None when the draft is over."""
+        if not self.draft_pool:
+            return None
+        for _ in range(2):
+            i = self.draft_turn
+            if self.draft_quota.get(i, 0) > 0 and len(self.players[i].items) < MAX_ITEMS:
+                return i
+            self.draft_turn = 1 - i
+        return None
+
+    def draft_pick(self, i, idx):
+        it = self.draft_pool.pop(idx)
+        p = self.players[i]
+        p.items.append(it)
+        self.draft_quota[i] -= 1
+        self.draft_turn = 1 - i
+        self.add_log(f"{p.name} {self.v(p, 'draft')} {ITEMS[it]['label']}.", "item")
+        return it
+
+    def finish_draft(self):
+        if self.draft_pool:
+            self.add_log(f"{len(self.draft_pool)} unpicked item(s) go back in the box.", "info")
+        self.draft_pool = None
+        self.draft_quota = {}
+
+    def ai_draft_index(self, i):
+        d = self.dealer
+        taste = d["pool"] if d else STANDARD_POOL
+        best, best_s = 0, -99.0
+        for k, it in enumerate(self.draft_pool):
+            s = taste.get(it, 0.4) + random.random() * 1.5
+            if it == "charm" and "charm" in self.players[i].items:
+                s -= 3
+            if s > best_s:
+                best, best_s = k, s
+        return best
 
     def check_sudden(self):
         if not self.sudden and self.stage_winner is None and all(p.hp == 1 for p in self.players):
@@ -694,7 +843,8 @@ class Game:
             return False
         self.tell_key = key
         self.tell = None
-        if random.random() >= TELL_CHANCE:
+        chance = min(0.9, TELL_CHANCE * (2 if self.perks.get("sense") else 1))
+        if random.random() >= chance:
             return False
         acc = d["tells"]["acc"]
         if self.tilted and self.dealer_key == "liar":
@@ -797,7 +947,7 @@ class Game:
         return dealt, notes
 
     def heal(self, i, amount):
-        if self.sudden:
+        if self.sudden or "noheal" in self.mutators:
             return 0
         p = self.players[i]
         before = p.hp
@@ -815,6 +965,8 @@ class Game:
         if item == "shackles" and o.shackled:
             return False, f"{o.name} is already shackled."
         if item == "tonic":
+            if "noheal" in self.mutators:
+                return False, "No Healing mutator: Tonic does nothing."
             if self.sudden:
                 return False, "Sudden death: no healing."
             if p.hp >= p.max_hp:
@@ -1123,8 +1275,8 @@ class Game:
                 if self.heal(i, 1):
                     text = "+1 charge."
                 else:
-                    text = "+1 charge... but sudden death allows no healing." if self.sudden else \
-                        "+1 charge, but already full."
+                    text = "+1 charge... but no healing is allowed." if (self.sudden or "noheal" in self.mutators) \
+                        else "+1 charge, but already full."
             elif roll == 6:
                 if o.shackled:
                     text = f"Shackles, but {self.obj(o)} {self.v(o, 'be')} already chained."
@@ -1462,6 +1614,8 @@ Rules:
   dry (no items can be used), hot (the last shell is live), rush (a clock on the human; ignore it),
   blood (every hit on the opponent heals the shooter 1).
 - A high-roller round ("blind_shots_remaining" above 0) means nobody can use items until those shots are fired.
+- Run mutators ("mutators" in the state): noheal (no healing at all), peek (you see the first shell of
+  every load), dark (no counter), glass (+1 damage per live shell), pockets (your opponent draws fewer items).
 
 Items (use the lowercase key):
 - loupe: privately see the chambered shell.
@@ -1517,12 +1671,13 @@ def ai_state(g, i, step):
     return {
         "you_are": p.name, "opponent": o.name, "stage": g.stage,
         "your_charges": p.hp, "max_charges": p.max_hp, "opponent_charges": o.hp,
+        "opponent_max_charges": o.max_hp,
         "shells_remaining": live + blank, "live_remaining": live, "blank_remaining": blank,
         "chambered_shell": "unknown" if cur is None else ("live" if cur else "blank"),
         "chance_chambered_is_live": round(g.chance_live(i), 2),
         "known_future_shells": future, "tarot_readings": hints,
         "last_shell_out": None if not g.spent else ("live" if g.spent[-1] else "blank"),
-        "table_event": g.event, "sudden_death": g.sudden,
+        "table_event": g.event, "sudden_death": g.sudden, "mutators": sorted(g.mutators),
         "misfire_chance": MISFIRE_CHANCE if g.opts["misfires"] else 0,
         "live_shell_damage": g.live_damage(), "you_are_tilted": g.tilted,
         "blind_shots_remaining": g.blind,
@@ -2009,11 +2164,12 @@ def record_score(key, score, result):
 
 MENU = [
     ("duel", "Duel a dealer", "Pick one of four opponents and survive three stages."),
-    ("gauntlet", "Gauntlet (endless)", "Face every dealer in turn. Double or nothing between stages."),
+    ("gauntlet", "Gauntlet (endless)", "Every dealer in turn, a shop between stages, double or nothing."),
+    ("daily", "Daily challenge", "Same shells and draws for everyone today. One dealer, one mutator."),
     ("hotseat", "Hot-seat", "Two players, one keyboard, best of three stages."),
     ("items", "Item guide", "All 25 items: what they do and when to use them."),
-    ("scores", "High scores", "Your best runs against each dealer."),
-    ("settings", "Settings", "AI, theme, sound, speed, mouse, table events, misfires and shot clock."),
+    ("scores", "High scores", "Your best runs against each dealer, the Gauntlet and today's daily."),
+    ("settings", "Settings", "AI, rules (events, misfires, shot clock, draft), theme, sound, speed."),
     ("help", "How to play", "The rules on one screen."),
     ("quit", "Quit", "Leave the table."),
 ]
@@ -2028,16 +2184,15 @@ HELP_TEXT = [
     ("Rush Hour or Blood Moon. Live shells misfire 5% of the time. Both on 1 = SUDDEN DEATH.", False),
     ("READING THE DEALER", True),
     ("Tells: watch his face and the line under his items. The Accountant and the Gambler give", False),
-    ("honest tells about live shells, the Liar fakes his, and the Croupier has none.", False),
-    ("Tilt: hit a dealer twice in a row and he tilts. The Accountant turns reckless, the", False),
-    ("Gambler turns timid and the Liar turns honest. Landing a hit on you calms him down.", False),
-    ("Bluffs: after his turn the Liar tips you off. Press C to call it: if he lied he loses", False),
-    ("1 charge (and you score a bonus); if he told the truth, you lose 1.", False),
+    ("honest tells, the Liar fakes his, the Croupier has none. Hit a dealer twice in a row and", False),
+    ("he TILTS. After his turn the Liar tips you off: press C to call the bluff.", False),
     ("HOUSE RULES", True),
     ("Accountant: 3 items in one turn and he confiscates one. Gambler: once a stage, two blind", False),
     ("shots with no items and no counter. Croupier: sees the first shell of every load.", False),
-    ("MODES", True),
-    ("Duel one dealer for 3 stages, the endless Gauntlet with double or nothing, or Hot-seat.", False),
+    ("RUNS", True),
+    ("Duel: one dealer, 3 stages. Gauntlet: every dealer, endless, with a shop between stages.", False),
+    ("Daily: same shells for everyone today. Mutators multiply your score. Hot-seat: two humans.", False),
+    ("Item draft (Settings): items are laid face up after each reload and you take turns picking.", False),
     ("CONTROLS", True),
     ("←→ select · ↑↓ items/actions · Enter use · 1-8 item · S self · O opponent · C call bluff", False),
     ("? help · I item guide · Q menu. The mouse works too: click items, buttons and dealers.", False),
@@ -2185,6 +2340,10 @@ class UI:
         if title:
             self.put(y, x + 2, f" {title} ", curses.A_BOLD if tattr is None else tattr)
 
+    def clear_rect(self, y, x, h, w):
+        for r in range(h):
+            self.put(y + r, x, " " * w)
+
     def popup(self, lines, width=None, battr=None, align="center", buttons=None, title=""):
         rows = [(l, 0) if isinstance(l, str) else l for l in lines]
         blen = sum(len(b[0]) + 4 for b in buttons) + 2 * (len(buttons) - 1) if buttons else 0
@@ -2193,8 +2352,7 @@ class UI:
         bw, bh = iw + 4, len(rows) + 2 + (2 if buttons else 0)
         top, left = max(0, (H - bh) // 2), (W - bw) // 2
         ba = self.col("item") if battr is None else battr
-        for r in range(bh):
-            self.put(top + r, left, " " * bw)
+        self.clear_rect(top, left, bh, bw)
         self.box(top, left, bh, bw, title, ba)
         for k, (t, a) in enumerate(rows):
             txt = t[:iw]
@@ -2393,6 +2551,8 @@ class UI:
             out.append(("LEECH", "live"))
         if "charm" in p.items:
             out.append(("CHARM", "hp"))
+        if idx == 0 and g.perks:
+            out.append(("PERKS " + "".join(PERKS[k]["label"][0] * v for k, v in g.perks.items()), "dealer"))
         for label, ck in out:
             s = f"[{label}]"
             if x + len(s) > LEFT_W - 2:
@@ -2465,7 +2625,7 @@ class UI:
                         txt.append("The Jammer will stop a live shell.")
                 for t in txt:
                     lines += [(l, 0) for l in wrap(t, iw)]
-                if g.counter_on():
+                if g.counter_on(i):
                     lines += [(f"Odds it's live: {round(100 * g.chance_live(i))}%", self.col("item") | curses.A_BOLD)]
         else:
             if g.dealer:
@@ -2531,8 +2691,11 @@ class UI:
         # title bar
         if g.vs_ai:
             stage = f"Stage {g.stage}" + ("" if g.mode == "gauntlet" else "/3")
-            sc = f"Score {g.score}" + (" (x2 on clear)" if g.double_pending else "")
-            t = f" SHELL GAME │ vs {top.name} · {dealer['tier']} │ {stage} │ {sc} │ AI: {self.brain.short_label()}"
+            sc = f"Score {g.score}" + (f" x{g.mult:g}" if g.mult != 1 else "")
+            sc += " (x2 on clear)" if g.double_pending else ""
+            tag = "DAILY │ " if g.seed else ""
+            t = (f" SHELL GAME │ {tag}vs {top.name} · {dealer['tier']} │ {stage} │ {sc} │ "
+                 f"AI: {self.brain.short_label()}")
         else:
             t = f" SHELL GAME │ Hot-seat │ Stage {g.stage}/3 │ {bot.name} {bot.wins} – {top.wins} {top.name}"
         if g.sudden:
@@ -2617,13 +2780,20 @@ class UI:
         rl = sum(rem)
         self.segs(18, 2, [("LOADED ", curses.A_BOLD), (f"{lv} live ", self.col("live")),
                           (f"{bl} blank", self.col("blank"))])
-        if g.counter_on():
+        if g.counter_on(viewer):
             self.segs(18, 28, [("LEFT ", curses.A_BOLD), (f"{rl} live ", self.col("live")),
                                (f"{len(rem) - rl} blank", self.col("blank"))])
             if not ov and g.stage_winner is None and not g.players[viewer].is_ai:
                 self.put(18, 50, f"ODDS {round(100 * g.chance_live(viewer))}% live", self.col("item"))
         else:
-            why = "blind round" if g.blind else ("blackout" if g.event == "blackout" else "count SPENT")
+            if g.blind:
+                why = "blind round"
+            elif "dark" in g.mutators:
+                why = "lights out"
+            elif g.event == "blackout":
+                why = "blackout"
+            else:
+                why = "count SPENT"
             self.segs(18, 28, [("LEFT ", curses.A_BOLD), (f"?  {why}", curses.A_DIM)])
 
         # you / player 1
@@ -2658,6 +2828,73 @@ class UI:
                 hint = "←→ select  Enter use  1-8 item  S self  O opponent  C CALL BLUFF  ? help  Q menu"
             self.put(29, 2, hint, curses.A_DIM)
         self.scr.refresh()
+
+    # ═════════ draft ═════════
+    def run_draft(self, g):
+        while True:
+            i = g.draft_next()
+            if i is None:
+                g.finish_draft()
+                break
+            p = g.players[i]
+            if p.is_ai:
+                idx = g.ai_draft_index(i)
+                it = g.draft_pick(i, idx)
+                self.sound("item")
+                self.draw_board(g)
+                self.popup([(f"{p.name} {g.v(p, 'draft')}", curses.A_BOLD), "", (item_line(it), self.col("item"))],
+                           battr=self.col("dealer"))
+                self.pause(0.9)
+            else:
+                idx = self.draft_choose(g, i)
+                g.draft_pick(i, idx)
+                self.sound("buy")
+        self.draw_board(g)
+
+    def draft_choose(self, g, i):
+        sel = 0
+        p = g.players[i]
+        curses.flushinp()
+        while True:
+            pool = g.draft_pool
+            sel = max(0, min(sel, len(pool) - 1))
+            self.draw_board(g)
+            bx, by, bw = 12, 3, 76
+            bh = len(pool) + 11
+            self.clear_rect(by, bx, bh, bw)
+            self.box(by, bx, bh, bw, f"ITEM DRAFT · {p.name.upper()} PICKS", self.col("item"),
+                     curses.A_BOLD | self.col("item"))
+            quotas = "   ·   ".join(f"{pl.name}: {g.draft_quota.get(k, 0)} left" for k, pl in enumerate(g.players))
+            self.put(by + 1, bx + 3, quotas, curses.A_DIM)
+            for k, it in enumerate(pool):
+                y = by + 3 + k
+                num = (k + 1) % 10
+                self.put(y, bx + 3, f"[{num}] {item_line(it)}".ljust(bw - 6), self.sel_attr() if k == sel else 0)
+                self.hit(y, bx + 1, bw - 2, f"@p:{k}")
+            dy = by + 4 + len(pool)
+            info = ITEMS[pool[sel]]
+            self.put(dy, bx + 3, f"{info['icon']} {info['label'].upper()} · {info['cat'].upper()}",
+                     self.col("item") | curses.A_BOLD)
+            for r, l in enumerate(wrap(info["desc"], bw - 6)[:3]):
+                self.put(dy + 1 + r, bx + 3, l)
+            self.put(by + bh - 2, bx + 3, "↑↓ choose · Enter or number to draft · click an item", curses.A_DIM)
+            self.scr.refresh()
+            k = self.getkey()
+            if k == "UP":
+                sel = (sel - 1) % len(pool)
+            elif k in ("DOWN", "TAB"):
+                sel = (sel + 1) % len(pool)
+            elif k in ("ENTER", " "):
+                return sel
+            elif k.startswith("@p:"):
+                n = int(k[3:])
+                if n == sel:
+                    return sel
+                sel = n
+            elif len(k) == 1 and k.isdigit():
+                n = (int(k) - 1) % 10
+                if n < len(pool):
+                    return n
 
     # ═════════ animations ═════════
     def anim_load(self, g, live, blank):
@@ -2911,6 +3148,8 @@ class UI:
                 self.anim_load(g, e[1], e[2])
             elif kind == "event":
                 self.anim_event(g, e[1])
+            elif kind == "draft":
+                self.run_draft(g)
             elif kind == "sudden":
                 self.anim_sudden(g)
             elif kind == "shot":
@@ -3064,8 +3303,7 @@ class UI:
             top_i = min(top_i, idx)
             if idx >= top_i + page:
                 top_i = idx - page + 1
-            for r in range(bh):
-                self.put(by + r, bx, " " * bw)
+            self.clear_rect(by, bx, bh, bw)
             self.box(by, bx, bh, bw, title, self.col("item"))
             self.put(by + 1, bx + 2, f"Filter: {filt}_", curses.A_BOLD)
             for r, opt in enumerate(view[top_i:top_i + page]):
@@ -3115,6 +3353,177 @@ class UI:
             k += 1
         return w.result, w.error
 
+    # ═════════ run setup, shop, daily ═════════
+    def run_setup(self, subtitle):
+        """Pick optional mutators before a run. Returns a set, or None to go back."""
+        chosen, sel = set(), 0
+        n = len(MUTATOR_ORDER)
+        while True:
+            total = mutator_mult(chosen)
+            if self.frame():
+                self.centered(1, "RUN SETUP", self.col("item") | curses.A_BOLD)
+                self.centered(2, subtitle, curses.A_DIM)
+                self.box(4, 14, n * 3 + 5, 72, "MUTATORS · optional · they multiply your score", curses.A_DIM,
+                         curses.A_BOLD | self.col("item"))
+                for k, m in enumerate(MUTATOR_ORDER):
+                    mu = MUTATORS[m]
+                    y = 6 + k * 3
+                    mark = "[x]" if m in chosen else "[ ]"
+                    attr = self.sel_attr() if k == sel else (self.col("item") | curses.A_BOLD if m in chosen else 0)
+                    self.put(y, 17, f"{mark} {mu['label']:<16} x{mu['mult']:g}".ljust(40), attr)
+                    self.put(y + 1, 23, mu["desc"], curses.A_DIM)
+                    self.hit(y, 16, 68, f"@m:{k}")
+                    self.hit(y + 1, 16, 68, f"@m:{k}")
+                y = 6 + n * 3
+                start = f"[ START RUN · score x{total:.2f} ]"
+                self.put(y, 17, start, self.sel_attr() if sel == n else (self.col("hp") | curses.A_BOLD))
+                self.hit(y, 17, len(start), "@start")
+                self.centered(29, "↑↓ move · Space/Enter toggle · S start · Esc back", curses.A_DIM)
+                self.scr.refresh()
+            k = self.getkey()
+            if k == "UP":
+                sel = (sel - 1) % (n + 1)
+            elif k in ("DOWN", "TAB"):
+                sel = (sel + 1) % (n + 1)
+            elif k in ("s", "S", "@start"):
+                return chosen
+            elif k in ("ESC", "q", "Q"):
+                return None
+            elif k.startswith("@m:") or k in ("ENTER", " "):
+                if k.startswith("@m:"):
+                    sel = int(k[3:])
+                if sel == n:
+                    return chosen
+                m = MUTATOR_ORDER[sel]
+                chosen ^= {m}
+
+    def shop(self, g):
+        offers = []
+        seen = set()
+        while len(offers) < 4:
+            it = random.choices(ITEM_KEYS, weights=[ITEMS[x]["weight"] for x in ITEM_KEYS])[0]
+            if it in seen or it == "decoy":
+                continue
+            seen.add(it)
+            offers.append({"kind": "item", "key": it, "price": shop_price(it, g.stage), "sold": False})
+        perk_keys = [k for k in PERKS if g.perks.get(k, 0) < PERKS[k]["max"]]
+        random.shuffle(perk_keys)
+        for k in perk_keys[:3]:
+            offers.append({"kind": "perk", "key": k, "price": PERKS[k]["cost"], "sold": False})
+        offers.append({"kind": "done"})
+        sel, note, note_ck = 0, "", "item"
+        while True:
+            if self.frame():
+                self.centered(1, "THE HOUSE SHOP", self.col("item") | curses.A_BOLD)
+                self.centered(2, f"Stage {g.stage} cleared · you have {g.score} points · "
+                                 f"every point you spend is one you can't bank", curses.A_DIM)
+                self.box(4, 10, 14, 80, "FOR SALE", curses.A_DIM, curses.A_BOLD | self.col("item"))
+                y = 5
+                last = None
+                for k, o in enumerate(offers):
+                    if o["kind"] != last:
+                        header = {"item": "ITEMS · yours at the start of the next stage",
+                                  "perk": "PERKS · for the rest of the run", "done": ""}[o["kind"]]
+                        if header:
+                            self.put(y, 13, header, self.col("item") | curses.A_BOLD)
+                            y += 1
+                        last = o["kind"]
+                    if o["kind"] == "done":
+                        y += 1
+                        text = "[ Leave the shop ]"
+                        self.put(y, 15, text, self.sel_attr() if k == sel else (self.col("hp") | curses.A_BOLD))
+                    else:
+                        label = item_line(o["key"]) if o["kind"] == "item" else \
+                            f"{PERKS[o['key']]['label']:<14}{PERKS[o['key']]['desc']}"
+                        price = "SOLD" if o["sold"] else f"{o['price']:>5}"
+                        text = f"{label[:60]:<62}{price}"
+                        afford = not o["sold"] and g.score >= o["price"]
+                        attr = self.sel_attr() if k == sel else (0 if afford else curses.A_DIM)
+                        self.put(y, 15, text, attr)
+                    self.hit(y, 12, 76, f"@s:{k}")
+                    y += 1
+                owned = ", ".join(f"{PERKS[k]['label']}{' x' + str(v) if v > 1 else ''}" for k, v in g.perks.items())
+                bring = ", ".join(ITEMS[x]["label"] for x in g.bought)
+                self.put(19, 12, "Perks: " + (owned or "none yet"), self.col("dealer"))
+                self.put(20, 12, "Next stage you bring: " + (bring or "nothing"), self.col("item"))
+                if note:
+                    self.put(22, 12, note[:76], self.col(note_ck) | curses.A_BOLD)
+                self.centered(29, "↑↓ move · Enter buy · Esc leave", curses.A_DIM)
+                self.scr.refresh()
+            k = self.getkey()
+            if k == "UP":
+                sel = (sel - 1) % len(offers)
+            elif k in ("DOWN", "TAB"):
+                sel = (sel + 1) % len(offers)
+            elif k in ("ESC", "q", "Q"):
+                return
+            elif k.startswith("@s:") or k in ("ENTER", " "):
+                if k.startswith("@s:"):
+                    n = int(k[3:])
+                    if n != sel:
+                        sel = n
+                        continue
+                o = offers[sel]
+                if o["kind"] == "done":
+                    return
+                if o["sold"]:
+                    note, note_ck = "Already bought.", "item"
+                elif g.score < o["price"]:
+                    note, note_ck = "You can't afford that.", "live"
+                elif o["kind"] == "item" and len(g.bought) >= MAX_ITEMS:
+                    note, note_ck = "Your pockets are full.", "item"
+                else:
+                    g.score -= o["price"]
+                    o["sold"] = True
+                    self.sound("buy")
+                    if o["kind"] == "item":
+                        g.bought.append(o["key"])
+                        note = f"Bought {ITEMS[o['key']]['label']}."
+                    else:
+                        g.perks[o["key"]] = g.perks.get(o["key"], 0) + 1
+                        note = f"Perk unlocked: {PERKS[o['key']]['label']}."
+                    note_ck = "hp"
+                    g.add_log(f"Shop: {note}", "item")
+
+    def daily_screen(self, config):
+        today = date.today().isoformat()
+        yday = (date.today() - timedelta(days=1)).isoformat()
+        dk, mut = daily_setup(today)
+        d, mu = DEALERS[dk], MUTATORS[mut]
+        while True:
+            if self.frame():
+                self.centered(1, f"DAILY CHALLENGE · {today}", self.col("item") | curses.A_BOLD)
+                self.centered(2, "Same shells, events and item draws for everyone today.", curses.A_DIM)
+                dcol = self.col(d["color"])
+                self.box(4, 14, 19, 72, "TODAY'S TABLE", dcol, curses.A_BOLD | dcol)
+                for r, line in enumerate(portrait(d, "smug")):
+                    self.put(6 + r, 18, line, dcol)
+                self.put(6, 36, d["name"], curses.A_BOLD | dcol)
+                self.put(7, 36, d["tier"], dcol)
+                for r, l in enumerate(wrap(d["tagline"], 46)[:2]):
+                    self.put(8 + r, 36, l, curses.A_DIM)
+                self.segs(11, 36, [("MUTATOR  ", curses.A_BOLD), (f"{mu['label']} x{mu['mult']:g}",
+                                                                   self.col("item") | curses.A_BOLD)])
+                for r, l in enumerate(wrap(mu["desc"], 46)[:2]):
+                    self.put(12 + r, 36, l)
+                self.put(15, 18, "3 stages · table events and misfires on · no item draft", curses.A_DIM)
+                tb, yb = best_score(f"daily:{today}"), best_score(f"daily:{yday}")
+                self.segs(17, 18, [("TODAY'S BEST  ", curses.A_BOLD), (str(tb) if tb else "none yet",
+                                                                        self.col("hp") | curses.A_BOLD)])
+                self.segs(18, 18, [("YESTERDAY     ", curses.A_BOLD), (str(yb) if yb else "no run", curses.A_DIM)])
+                play, back = "[ PLAY ]", "[ BACK ]"
+                self.put(20, 36, play, self.col("hp") | curses.A_BOLD)
+                self.hit(20, 36, len(play), "@play")
+                self.put(20, 48, back, curses.A_BOLD)
+                self.hit(20, 48, len(back), "@back")
+                self.centered(29, "Enter / P play · Esc back", curses.A_DIM)
+                self.scr.refresh()
+            k = self.getkey()
+            if k in ("ENTER", " ", "p", "P", "@play"):
+                return dk, mut, today
+            if k in ("ESC", "q", "Q", "@back"):
+                return None
+
     # ═════════ menu screens ═════════
     def main_menu(self, config, sel):
         tick = 0
@@ -3136,13 +3545,13 @@ class UI:
                 for k in range(24):
                     live = pattern[(k + tick // 3) % len(pattern)]
                     self.put(7, ticker_x + 2 * k, "▮", (self.col("live") if live else self.col("blank")) | curses.A_DIM)
-                self.box(8, 34, 10, 32, "MENU", curses.A_DIM)
+                self.box(8, 34, len(MENU) + 2, 32, "MENU", curses.A_DIM)
                 for k, (_, label, _) in enumerate(MENU):
                     y = 9 + k
                     marker = "▶" if k == sel else " "
                     self.put(y, 36, f"{marker} {k + 1}  {label}".ljust(28), self.sel_attr() if k == sel else 0)
                     self.hit(y, 35, 30, f"@menu:{k}")
-                self.centered(19, MENU[sel][2], curses.A_DIM)
+                self.centered(20, MENU[sel][2], curses.A_DIM)
                 for k, dk in enumerate(DEALER_ORDER):
                     d = DEALERS[dk]
                     x = 8 + k * 23
@@ -3323,11 +3732,13 @@ class UI:
 
     def scores_screen(self):
         data = load_scores()
+        today = date.today().isoformat()
         if self.frame():
             self.centered(1, "HIGH SCORES", self.col("item") | curses.A_BOLD)
             slots = [(f"duel:{dk}", DEALERS[dk]["name"].upper(), DEALERS[dk]["color"]) for dk in DEALER_ORDER]
             slots.append(("gauntlet", "GAUNTLET", "item"))
-            spots = [(3, 1), (3, 34), (3, 67), (14, 17), (14, 50)]
+            slots.append((f"daily:{today}", f"DAILY {today[5:]}", "blank"))
+            spots = [(3, 1), (3, 34), (3, 67), (14, 1), (14, 34), (14, 67)]
             for (key, title, ck), (y, x) in zip(slots, spots):
                 self.box(y, x, 10, 32, title, curses.A_DIM, curses.A_BOLD | self.col(ck))
                 entries = [e for e in data.get(key, []) if isinstance(e, dict)][:7]
@@ -3371,7 +3782,7 @@ class UI:
     def settings(self, brain, config):
         sel, note, note_ck = 1, "", "item"
         prefs = config.prefs
-        cyclers = ("provider", "theme", "sound", "speed", "mouse", "events", "misfires", "clock")
+        cyclers = ("provider", "theme", "sound", "speed", "mouse", "events", "misfires", "clock", "draft")
         while True:
             p = brain.provider
             info = PROVIDERS[p]
@@ -3400,23 +3811,26 @@ class UI:
                     rows.append({"kind": "button", "value": "Remove saved key", "tok": "delkey",
                                  "help": "Deletes this provider's key from the Keychain."})
             clock_label = "Off" if prefs["clock"] == "off" else f"{prefs['clock']} seconds"
+            onoff = lambda v: "On" if v else "Off"  # noqa: E731
             rows += [
                 {"kind": "header", "label": "GAME RULES"},
-                {"kind": "field", "label": "Table events", "value": f"◀ {'On' if prefs['events'] else 'Off'} ▶",
+                {"kind": "field", "label": "Table events", "value": f"◀ {onoff(prefs['events'])} ▶",
                  "tok": "events", "help": "Each reload may flip a random event card that bends the rules until "
                                           "the next reload."},
-                {"kind": "field", "label": "Misfires", "value": f"◀ {'On' if prefs['misfires'] else 'Off'} ▶",
+                {"kind": "field", "label": "Misfires", "value": f"◀ {onoff(prefs['misfires'])} ▶",
                  "tok": "misfires", "help": "Live shells have a 5% chance to fizzle, so no shot is ever certain."},
                 {"kind": "field", "label": "Shot clock", "value": f"◀ {clock_label} ▶", "tok": "clock",
                  "help": "Time limit per decision. Run out and you fire at a random target. Rush Hour forces 10s."},
+                {"kind": "field", "label": "Item draft", "value": f"◀ {onoff(prefs['draft'])} ▶", "tok": "draft",
+                 "help": "After each reload, items are laid face up and you take turns picking instead of drawing."},
                 {"kind": "header", "label": "DISPLAY & SOUND"},
                 {"kind": "field", "label": "Theme", "value": f"◀ {THEMES[prefs['theme']]['label']} ▶", "tok": "theme",
                  "help": "Casino (classic reds), Neon (magenta and cyan) or Noir (black and white with red)."},
-                {"kind": "field", "label": "Sound", "value": f"◀ {'On' if prefs['sound'] else 'Off'} ▶", "tok": "sound",
+                {"kind": "field", "label": "Sound", "value": f"◀ {onoff(prefs['sound'])} ▶", "tok": "sound",
                  "help": "Plays built-in macOS system sounds for shots, reloads, items and wins."},
                 {"kind": "field", "label": "Animations", "value": f"◀ {prefs['speed'].title()} ▶", "tok": "speed",
                  "help": "Normal, Fast or Turbo. Turbo skips the screen wipe and trims every pause."},
-                {"kind": "field", "label": "Mouse", "value": f"◀ {'On' if prefs['mouse'] else 'Off'} ▶", "tok": "mouse",
+                {"kind": "field", "label": "Mouse", "value": f"◀ {onoff(prefs['mouse'])} ▶", "tok": "mouse",
                  "help": "Click items and buttons. Turn it off to select text in Terminal normally."},
                 {"kind": "button", "value": "Done", "tok": "done", "help": "Back to the main menu."},
             ]
@@ -3476,7 +3890,7 @@ class UI:
                 elif tok == "mouse":
                     prefs["mouse"] = not prefs["mouse"]
                     self.apply_mouse()
-                elif tok in ("events", "misfires"):
+                elif tok in ("events", "misfires", "draft"):
                     prefs[tok] = not prefs[tok]
                 elif tok == "clock":
                     prefs["clock"] = self._cycle(CLOCK_OPTIONS, prefs["clock"], step)
@@ -3756,13 +4170,14 @@ def stage_over(ui, g, config):
         return False
 
     dname = g.players[1].name
+    tag = g.run_tag()
     if w == 1:
         if g.mode == "gauntlet":
             lost, g.score = g.score, 0
             ui.banner(g, "YOU DIED", [f"{dname} got you in stage {g.stage}.",
                                       f"The house keeps all {lost} points." if lost else ""], "live")
         else:
-            best = record_score(f"duel:{g.dealer_key}", g.score, f"died in stage {g.stage}")
+            best = record_score(g.score_key(), g.score, f"died in stage {g.stage}{tag}")
             ui.banner(g, "YOU DIED", [f"{dname} wins in stage {g.stage}. Score: {g.score}",
                                       "New high score!" if best else ""], "live")
         return True
@@ -3775,9 +4190,9 @@ def stage_over(ui, g, config):
         note = "Double or nothing paid off: score doubled!"
     if g.mode == "duel" and g.stage >= 3:
         g.award(2000)
-        best = record_score(f"duel:{g.dealer_key}", g.score, "won")
-        ui.banner(g, f"YOU BEAT {dname.upper()}", [note, f"Final score: {g.score}",
-                                                   "New high score!" if best else ""], "hp")
+        best = record_score(g.score_key(), g.score, f"won{tag}")
+        title = "DAILY CHALLENGE BEATEN" if g.seed else f"YOU BEAT {dname.upper()}"
+        ui.banner(g, title, [note, f"Final score: {g.score}", "New high score!" if best else ""], "hp")
         if g.dealer_key != "croupier" and config.unlock("croupier"):
             ui.banner(g, "THE CROUPIER WILL SEE YOU NOW",
                       ["A new dealer is waiting at the table.", "Pick him from the Duel menu."], "live")
@@ -3787,8 +4202,9 @@ def stage_over(ui, g, config):
         if g.stage == 3 and config.unlock("croupier"):
             ui.banner(g, "THE CROUPIER WILL SEE YOU NOW",
                       ["He's now available in Duel mode too."], "live")
+        ui.shop(g)
         if ui.ask_double(g) == "cash":
-            best = record_score("gauntlet", g.score, f"cashed out after stage {g.stage}")
+            best = record_score("gauntlet", g.score, f"cashed out after stage {g.stage}{tag}")
             ui.banner(g, "CASHED OUT", [f"You walk away with {g.score} points.",
                                         "New high score!" if best else ""], "item")
             return True
@@ -3796,8 +4212,19 @@ def stage_over(ui, g, config):
     return False
 
 
-def run_game(ui, brain, config, mode, dealer_key=None):
-    opts = {"events": config.prefs["events"], "misfires": config.prefs["misfires"]}
+def run_game(ui, brain, config, mode, dealer_key=None, daily=None):
+    prefs = config.prefs
+    opts = {"events": prefs["events"], "misfires": prefs["misfires"], "draft": prefs["draft"]}
+    if daily:
+        dealer_key, mut, seed = daily
+        opts.update({"events": True, "misfires": True, "draft": False, "mutators": [mut], "seed": seed})
+    elif mode in ("duel", "gauntlet"):
+        subtitle = (f"Duel vs {DEALERS[dealer_key]['name']}: 3 stages" if mode == "duel"
+                    else "Gauntlet: every dealer in turn, a shop between stages")
+        muts = ui.run_setup(subtitle)
+        if muts is None:
+            return
+        opts["mutators"] = sorted(muts)
     if mode == "hotseat":
         n1 = ui.text_input("PLAYER 1 NAME", "Player 1", maxlen=12)
         if n1 is None:
@@ -3863,6 +4290,10 @@ def main(scr, offline=False):
                 run_game(ui, brain, config, "duel", dk)
         elif action == "fight":
             run_game(ui, brain, config, "duel", extra)
+        elif action == "daily":
+            daily = ui.daily_screen(config)
+            if daily:
+                run_game(ui, brain, config, "duel", daily=daily)
         elif action in ("gauntlet", "hotseat"):
             run_game(ui, brain, config, action)
         elif action == "items":
