@@ -17,6 +17,7 @@ import curses
 import getpass
 import json
 import locale
+import math
 import os
 import random
 import shutil
@@ -42,13 +43,19 @@ API_TIMEOUT = 25
 CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
 KEYCHAIN_SERVICE = "shellgame"
-USER_AGENT = "ShellGame/3.0 (+terminal game)"
+USER_AGENT = "ShellGame/3.1 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 SOUND_DIR = "/System/Library/Sounds"
 SOUNDS = {"bang": "Basso", "click": "Tink", "load": "Pop", "item": "Morse", "win": "Hero",
-          "lose": "Sosumi", "dice": "Bottle", "trap": "Funk", "reveal": "Glass"}
+          "lose": "Sosumi", "dice": "Bottle", "trap": "Funk", "reveal": "Glass", "event": "Purr",
+          "sudden": "Submarine"}
 SPEEDS = {"normal": 1.0, "fast": 0.55, "turbo": 0.25}
-DEFAULT_PREFS = {"theme": "casino", "sound": True, "speed": "normal", "mouse": True}
+CLOCK_OPTIONS = ["off", "20", "15", "10"]
+DEFAULT_PREFS = {"theme": "casino", "sound": True, "speed": "normal", "mouse": True,
+                 "events": True, "misfires": True, "clock": "off"}
+MISFIRE_CHANCE = 0.05
+EVENT_CHANCE = 0.55
+RUSH_SECONDS = 10
 
 ROLES = ["live", "blank", "item", "hp", "dealer", "flash", "title"]
 THEMES = {
@@ -63,6 +70,25 @@ THEMES = {
              "title": ("BLACK", "WHITE")},
 }
 THEME_ORDER = ["casino", "neon", "noir"]
+
+EVENTS = {
+    "blackout": {"label": "Blackout", "icon": "●",
+                 "desc": "The LEFT counter goes dark for this load. Count the SPENT row yourself."},
+    "stakes": {"label": "Double Stakes", "icon": "²",
+               "desc": "Every live shell deals 1 extra damage this load. A sawed-off hit deals 3."},
+    "generous": {"label": "Generous House", "icon": "+",
+                 "desc": "The house is feeling kind: everyone drew 2 extra items this load."},
+    "dry": {"label": "Dry Table", "icon": "∅",
+            "desc": "No items can be used until the next reload. Just you, the gun and the odds."},
+    "hot": {"label": "Hot Barrel", "icon": "▲",
+            "desc": "The last shell in the gun is guaranteed live, and everyone knows it (unless someone shuffles)."},
+    "rush": {"label": "Rush Hour", "icon": "◷",
+             "desc": f"A {RUSH_SECONDS}-second shot clock runs on every human decision this load. "
+                     f"Dither and the gun fires itself."},
+    "blood": {"label": "Blood Moon", "icon": "☾",
+              "desc": "Every hit on your opponent heals you 1 charge this load."},
+}
+EVENT_KEYS = list(EVENTS)
 
 
 def _item(label, icon, cat, short, weight, desc, tip):
@@ -88,7 +114,8 @@ ITEMS = {
                       "effect on someone already chained.",
                       "Use it when you know the next two shells are live, or to buy time while you're low."),
     "tonic": _item("Tonic", "♥", "Defense", "+1 charge", 3,
-                   "A bitter drink that restores 1 charge, up to your maximum. It can't be used at full charge.",
+                   "A bitter drink that restores 1 charge, up to your maximum. It can't be used at full "
+                   "charge or in sudden death.",
                    "Drink it early. A charge saved now is a live shell survived later."),
     "flipper": _item("Flipper", "⇅", "Gun", "invert the chambered shell", 2,
                      "Invert the chambered shell: live becomes blank, blank becomes live. The new value is "
@@ -410,12 +437,17 @@ class Player:
 
 
 class Game:
-    def __init__(self, mode, names, vs_ai, dealer_key=None):
+    def __init__(self, mode, names, vs_ai, dealer_key=None, opts=None):
         self.mode, self.vs_ai, self.dealer_key = mode, vs_ai, dealer_key
+        self.opts = {"events": True, "misfires": True}
+        self.opts.update(opts or {})
         self.players = [Player(names[0]), Player(names[1], is_ai=vs_ai)]
         self.stage = 0
         self.shells, self.pos, self.spent = [], 0, []
         self.loaded = (0, 0)
+        self.loads = 0
+        self.event = None
+        self.sudden = False
         self.turn = 0
         self.sawed = False
         self.double = False
@@ -435,6 +467,12 @@ class Game:
     def rules(self):
         d = self.dealer
         return d["rules"] if d else STANDARD_RULES
+
+    def counter_on(self):
+        return self.rules["counter"] and self.event != "blackout"
+
+    def live_damage(self, first=True):
+        return (2 if (self.sawed and first) else 1) + (1 if self.event == "stakes" else 0)
 
     # ── language helpers
     def v(self, p, verb):
@@ -528,6 +566,8 @@ class Game:
             p.items = []
             p.reset_status()
         self.sawed = self.double = self.jammed = False
+        self.sudden = False
+        self.loads = 0
         self.stage_winner = None
         self.pending_tip = False
         self.turn = 0 if self.vs_ai else (self.stage - 1) % 2
@@ -537,20 +577,34 @@ class Game:
 
     def reload(self):
         self.needs_reload = False
+        self.loads += 1
+        self.event = None
+        first_ever = self.stage == 1 and self.loads == 1
+        if self.opts["events"] and not first_ever and random.random() < EVENT_CHANCE:
+            self.event = random.choice(EVENT_KEYS)
         lo, hi = {1: (2, 4), 2: (3, 6)}.get(self.stage, (4, 8))
         n = random.randint(lo, hi)
         live = random.randint(max(1, n // 2 - 1), min(n - 1, (n + 1) // 2 + 1))
         self.shells = [True] * live + [False] * (n - live)
         random.shuffle(self.shells)
+        if self.event == "hot" and not self.shells[-1]:
+            j = random.choice([k for k, v in enumerate(self.shells) if v])
+            self.shells[j], self.shells[-1] = self.shells[-1], self.shells[j]
         self.pos, self.spent, self.loaded = 0, [], (live, n - live)
         self.sawed = False
         for p in self.players:
             p.known, p.hints, p.peeked = {}, [], False
+            if self.event == "hot":
+                p.known[len(self.shells) - 1] = True
         self.add_log(f"The gun is loaded: {live} live, {n - live} blank.", "info")
+        if self.event:
+            e = EVENTS[self.event]
+            self.add_log(f"TABLE EVENT {e['icon']} {e['label']}: {e['desc']}", "title")
+        bonus = 2 if self.event == "generous" else 0
         for idx, p in enumerate(self.players):
             dealer_side = self.vs_ai and idx == 1
             pool = self.dealer["pool"] if dealer_side else STANDARD_POOL
-            k = self._scaled("dealer_items" if dealer_side else "you_items", 6)
+            k = self._scaled("dealer_items" if dealer_side else "you_items", 6) + bonus
             keys = list(pool)
             weights = [pool[x] for x in keys]
             got = []
@@ -562,7 +616,17 @@ class Game:
                 got.append(ITEMS[it]["label"])
             if got:
                 self.add_log(f"{p.name} {self.v(p, 'draw')}: {', '.join(got)}.", "item")
-        return [("load", live, n - live)]
+        ev = [("load", live, n - live)]
+        if self.event:
+            ev.append(("event", self.event))
+        return ev
+
+    def check_sudden(self):
+        if not self.sudden and self.stage_winner is None and all(p.hp == 1 for p in self.players):
+            self.sudden = True
+            self.add_log("SUDDEN DEATH: both on 1 charge. Healing is off.", "live")
+            return [("sudden",)]
+        return []
 
     # ── shell bookkeeping
     def _advance(self):
@@ -603,6 +667,8 @@ class Game:
         return before - t.hp, notes
 
     def heal(self, i, amount):
+        if self.sudden:
+            return 0
         p = self.players[i]
         before = p.hp
         p.hp = min(p.max_hp, p.hp + amount)
@@ -618,8 +684,11 @@ class Game:
             return False, "The barrel is already sawed off."
         if item == "shackles" and o.shackled:
             return False, f"{o.name} is already shackled."
-        if item == "tonic" and p.hp >= p.max_hp:
-            return False, "Already at full charge."
+        if item == "tonic":
+            if self.sudden:
+                return False, "Sudden death: no healing."
+            if p.hp >= p.max_hp:
+                return False, "Already at full charge."
         if item == "radio" and n < 2:
             return False, "No future shells to listen for."
         if item == "hook":
@@ -664,6 +733,8 @@ class Game:
         p = self.players[i]
         if entry not in p.items:
             return False, "You don't have that item."
+        if self.event == "dry":
+            return False, "Dry table: no items until the next reload."
         if p.muzzled:
             return False, "You're muzzled: no items this turn."
         return self._can_apply(i, base(entry))
@@ -677,7 +748,7 @@ class Game:
 
     def legal_items(self, i):
         p = self.players[i]
-        if p.muzzled:
+        if p.muzzled or self.event == "dry":
             return []
         out = []
         for x in p.items:
@@ -726,8 +797,10 @@ class Game:
                 return False, "Pick something to break.", []
         p.items.remove(entry)
         if entry.startswith("trap:"):
-            return True, "", self._backfire(i, b)
-        return True, "", self._apply(i, b, arg)
+            ev = self._backfire(i, b)
+        else:
+            ev = self._apply(i, b, arg)
+        return True, "", ev + self.check_sudden()
 
     def _backfire(self, i, item):
         p = self.players[i]
@@ -798,8 +871,11 @@ class Game:
                 ev += self._apply(i, b, self._auto_arg(i, b))
         elif item == "pills":
             if random.random() < 0.5:
-                self.heal(i, 2)
-                self.add_log(f"{P} {self.v(p, 'swallow')} the Pills: +2 charges.", "item")
+                got = self.heal(i, 2)
+                if got:
+                    self.add_log(f"{P} {self.v(p, 'swallow')} the Pills: +{got} charge{'s' if got > 1 else ''}.", "item")
+                else:
+                    self.add_log(f"{P} {self.v(p, 'swallow')} the Pills. Nothing happens.", "item")
                 ev.append(("minor",))
             else:
                 self.add_log(f"{P} {self.v(p, 'swallow')} the Pills. Bad batch: -1 charge.", "live")
@@ -899,7 +975,11 @@ class Game:
             elif roll == 4:
                 text = "A glimpse of the chamber."
             elif roll == 5:
-                text = "+1 charge." if self.heal(i, 1) else "+1 charge, but you're already full."
+                if self.heal(i, 1):
+                    text = "+1 charge."
+                else:
+                    text = "+1 charge... but sudden death allows no healing." if self.sudden else \
+                        "+1 charge, but already full."
             elif roll == 6:
                 if o.shackled:
                     text = f"Shackles, but {self.obj(o)} {self.v(o, 'be')} already chained."
@@ -959,20 +1039,25 @@ class Game:
             if self.left() <= 0 or self.stage_winner is not None:
                 break
             live = self._advance()
-            r = {"live": live, "dmg": 0, "jam": False, "notes": []}
+            r = {"live": live, "dmg": 0, "jam": None, "notes": []}
             if live:
                 fired_live = True
                 if jam and n == 0:
-                    r["jam"] = True
+                    r["jam"] = "jammer"
                     self.add_log("Live shell... but the Jammer holds. It misfires!", "blank")
+                elif self.opts["misfires"] and random.random() < MISFIRE_CHANCE:
+                    r["jam"] = "misfire"
+                    self.add_log("Live shell... and it MISFIRES! A dud.", "blank")
                 else:
-                    dmg = 2 if (self.sawed and n == 0) else 1
-                    dealt, notes = self.damage(ti, dmg)
+                    dealt, notes = self.damage(ti, self.live_damage(first=(n == 0)))
                     r["dmg"], r["notes"] = dealt, notes
                     self.add_log(f"BANG! {t.name} {self.v(t, 'lose')} {dealt}.", "live")
-                    if p.leech and ti != i and dealt > 0 and self.heal(i, 1):
-                        r["notes"].append(f"{p.name} {self.v(p, 'leech')} 1 charge")
-                        self.add_log(f"{p.name} {self.v(p, 'leech')} 1 charge back.", "hp")
+                    gain = (1 if p.leech else 0) + (1 if self.event == "blood" else 0)
+                    if ti != i and dealt > 0 and gain:
+                        got = self.heal(i, gain)
+                        if got:
+                            r["notes"].append(f"{p.name} {self.v(p, 'drain')} {got} charge back")
+                            self.add_log(f"{p.name} {self.v(p, 'drain')} {got} charge back.", "hp")
                     if self.vs_ai and i == 0 and ti == 1:
                         self.award(100 * dealt)
             else:
@@ -985,6 +1070,7 @@ class Game:
         ev = [("shot", i, ti, results, ov, rico)]
         if self.stage_winner is not None:
             return ev
+        ev += self.check_sudden()
         if not (at_self and not fired_live):
             self.pass_turn()
         if self.left() <= 0:
@@ -1021,7 +1107,7 @@ CROWBAR_PRIORITY = ["charm", "saw", "loupe", "double", "tonic", "vest", "snapsho
 
 def extras(g, i, c, reckless):
     """Opportunistic uses of the newer items. Returns an action or None."""
-    L, p, o, cur, n = c["L"], c["p"], c["o"], c["cur"], c["n"]
+    L, p, o, cur = c["L"], c["p"], c["o"], c["cur"]
     if "decoy" in L:
         return _use("decoy", random.choice(DECOY_FORMS))
     if "vest" in L:
@@ -1216,6 +1302,12 @@ Rules:
 - A live shell removes 1 charge from the target (2 if the saw is active). A blank does nothing.
 - Shooting YOURSELF with a BLANK lets you keep your turn. Every other shot ends your turn.
 - A player at 0 charges loses the stage. When the gun is empty it is reloaded and both players draw new items.
+- Misfires: when "misfire_chance" is above 0, any live shell may fizzle harmlessly.
+- Sudden death: once both players are on 1 charge, all healing stops for the rest of the stage.
+- Table events: "table_event" in the state changes the rules until the next reload:
+  blackout (no remaining-shell counter), stakes (+1 damage per live shell), generous (extra items),
+  dry (no items can be used), hot (the last shell is live), rush (a clock on the human; ignore it),
+  blood (every hit on the opponent heals the shooter 1).
 
 Items (use the lowercase key):
 - loupe: privately see the chambered shell.
@@ -1272,6 +1364,9 @@ def ai_state(g, i, step):
         "chance_chambered_is_live": round(g.chance_live(i), 2),
         "known_future_shells": future, "tarot_readings": hints,
         "last_shell_out": None if not g.spent else ("live" if g.spent[-1] else "blank"),
+        "table_event": g.event, "sudden_death": g.sudden,
+        "misfire_chance": MISFIRE_CHANCE if g.opts["misfires"] else 0,
+        "live_shell_damage": g.live_damage(),
         "saw_active": g.sawed, "double_loaded": g.double, "jammer_set": g.jammed,
         "you": {"vest": p.vest, "ricochet_armed": p.ricochet, "leech_primed": p.leech,
                 "muzzled": p.muzzled, "has_charm": "charm" in p.items},
@@ -1491,6 +1586,8 @@ class Config:
             prefs["theme"] = "casino"
         if prefs["speed"] not in SPEEDS:
             prefs["speed"] = "normal"
+        if prefs["clock"] not in CLOCK_OPTIONS:
+            prefs["clock"] = "off"
         self.data = d
 
     @property
@@ -1757,7 +1854,7 @@ MENU = [
     ("hotseat", "Hot-seat", "Two players, one keyboard, best of three stages."),
     ("items", "Item guide", "All 25 items: what they do and when to use them."),
     ("scores", "High scores", "Your best runs against each dealer."),
-    ("settings", "Settings", "AI provider, theme, sound, animation speed and mouse."),
+    ("settings", "Settings", "AI, theme, sound, speed, mouse, table events, misfires and shot clock."),
     ("help", "How to play", "The rules on one screen."),
     ("quit", "Quit", "Leave the table."),
 ]
@@ -1772,17 +1869,19 @@ HELP_TEXT = [
     ("  • Blank at yourself: you keep your turn. Any other shot ends it.", False),
     ("Lose every charge and you lose the stage. An empty gun is reloaded and both players", False),
     ("draw new items (8 max). You draw from all 25 items; each dealer carries his own pool.", False),
+    ("THE TABLE", True),
+    ("Reloads may flip a table event: Blackout, Double Stakes, Generous House, Dry Table,", False),
+    ("Hot Barrel, Rush Hour or Blood Moon. Live shells misfire 5% of the time. When both", False),
+    ("players are on 1 charge it's SUDDEN DEATH: no more healing. Rush Hour starts a shot clock.", False),
     ("STATUS BADGES", True),
     ("CHAINED skips a turn · MUZZLED can't use items · VEST absorbs 1 · RICOCHET bounces the next", False),
     ("shot · LEECH heals on a hit · CHARM survives one lethal hit. Gifts may be rigged.", False),
     ("MODES", True),
-    ("Duel: beat one dealer three stages running. Beat anyone to unlock the Croupier.", False),
-    ("Gauntlet: every dealer in turn, forever. After each stage: cash out, or double or nothing.", False),
-    ("Hot-seat: two humans, one keyboard, best of three stages.", False),
+    ("Duel: beat a dealer 3 stages running (beat anyone to unlock the Croupier). Gauntlet: every", False),
+    ("dealer in turn, forever, double or nothing. Hot-seat: two humans, best of three.", False),
     ("CONTROLS", True),
     ("←→ / Tab select · ↑↓ items/actions · Enter use · 1-8 quick-use · S self · O opponent", False),
     ("? help · I item guide · Q menu. The mouse works too: click items, buttons and dealers.", False),
-    ("Settings has themes (Casino, Neon, Noir), sound, animation speed and a mouse toggle.", False),
 ]
 
 
@@ -1859,6 +1958,12 @@ class UI:
         except OSError:
             pass
 
+    def clock_limit(self, g):
+        if g.event == "rush":
+            return RUSH_SECONDS
+        c = self.prefs.get("clock", "off")
+        return int(c) if c != "off" else None
+
     def new_game(self):
         self.msg = ""
         self.speech = ""
@@ -1867,6 +1972,7 @@ class UI:
         self.override = None
         self.aim = None
         self.focus = 0
+        self.clock_deadline = None
 
     # ── primitives
     def col(self, k, default=0):
@@ -2095,6 +2201,8 @@ class UI:
         p = g.players[idx]
         hp = ov.get("hp", {}).get(idx, p.hp)
         bar = self.col("live") if hp <= 1 else self.col("hp")
+        if g.sudden and int(time.time() * 2) % 2:
+            bar |= curses.A_REVERSE
         self.put(y, x, "CHARGES", curses.A_BOLD)
         self.put(y, x + 8, "█" * hp, bar | curses.A_BOLD)
         self.put(y, x + 8 + hp, "░" * max(0, p.max_hp - hp), curses.A_DIM)
@@ -2140,7 +2248,9 @@ class UI:
                 self.put(cy, cx, text, a)
                 self.hit(cy, cx, cell - 1, f"@item:{k}")
             else:
-                self.put(cy, cx, f" {info['icon']} {info['label']}", self.col("item") if p.is_ai else 0)
+                dim = g.event == "dry"
+                self.put(cy, cx, f" {info['icon']} {info['label']}",
+                         curses.A_DIM if dim else (self.col("item") if p.is_ai else 0))
 
     def draw_info(self, g, interactive):
         x, y, iw = RIGHT_X, 1, RIGHT_W - 4
@@ -2163,31 +2273,35 @@ class UI:
                 o = g.players[1 - i]
                 title = "ACTION"
                 n = 2 if g.double else 1
+                dmg = g.live_damage()
                 shells = "two shells" if n == 2 else "the chambered shell"
                 if val == "opp":
-                    txt = [f"Shoot {g.obj(o)} with {shells}.", "Live: they lose 1 (2 if sawed off).",
-                           "Blank: your turn ends."]
+                    txt = [f"Shoot {g.obj(o)} with {shells}.", f"Live: they lose {dmg}.", "Blank: your turn ends."]
                     if o.ricochet:
                         txt.append("Their RICOCHET plate will bounce it back at you!")
                 else:
-                    txt = [f"Shoot yourself with {shells}.", "Blank: you keep your turn.",
-                           "Live: you lose 1 (2 if sawed off)."]
+                    txt = [f"Shoot yourself with {shells}.", "Blank: you keep your turn.", f"Live: you lose {dmg}."]
                     if g.jammed:
                         txt.append("The Jammer will stop a live shell.")
                 for t in txt:
                     lines += [(l, 0) for l in wrap(t, iw)]
-                if g.rules["counter"]:
+                if g.counter_on():
                     lines += [(f"Odds it's live: {round(100 * g.chance_live(i))}%", self.col("item") | curses.A_BOLD)]
-        elif g.dealer:
-            d = g.dealer
-            title = d["name"].upper()
-            lines = [(l, curses.A_DIM) for l in wrap(d["tagline"], iw)] + [("", 0)]
-            for s in d["style"]:
-                lines += [(l, 0) for l in wrap("• " + s, iw)]
         else:
-            title = "HOT-SEAT"
-            lines = [(l, 0) for l in wrap("Two players, one keyboard, best of three stages. "
-                                          "Look away when the other player peeks.", iw)]
+            if g.dealer:
+                d = g.dealer
+                title = d["name"].upper()
+                lines = [(l, curses.A_DIM) for l in wrap(d["tagline"], iw)]
+                for s in d["style"]:
+                    lines += [(l, 0) for l in wrap("• " + s, iw)]
+            else:
+                title = "HOT-SEAT"
+                lines = [(l, 0) for l in wrap("Two players, one keyboard, best of three stages. "
+                                              "Look away when the other player peeks.", iw)]
+            if g.event:
+                e = EVENTS[g.event]
+                lines = lines[:5] + [(f"{e['icon']} {e['label'].upper()}", self.col("item") | curses.A_BOLD)]
+                lines += [(l, self.col("item")) for l in wrap(e["desc"], iw)]
         self.box(y, x, 10, RIGHT_W, title[:RIGHT_W - 6], self.border(interactive), curses.A_BOLD)
         for k, (t, a) in enumerate(lines[:8]):
             self.put(y + 1 + k, x + 2, t, a)
@@ -2215,7 +2329,17 @@ class UI:
                 self.put(26, bx, s, curses.A_BOLD)
                 self.hit(26, bx, len(s), tok)
 
-    def draw_board(self, g, status=None, interactive=False):
+    def draw_clock(self, clock):
+        rem, lim = clock
+        rem = max(0.0, rem)
+        width = 30
+        filled = math.ceil(width * rem / lim) if lim else 0
+        ck = "live" if rem < 3 else "item"
+        self.segs(27, 2, [("◷ SHOT CLOCK ", curses.A_BOLD),
+                          ("█" * filled + "░" * (width - filled), self.col(ck) | curses.A_BOLD),
+                          (f" {rem:4.1f}s", self.col(ck) | curses.A_BOLD)])
+
+    def draw_board(self, g, status=None, interactive=False, clock=None):
         if not self.frame():
             return
         ov = self.override or {}
@@ -2230,7 +2354,10 @@ class UI:
             t = f" SHELL GAME │ vs {top.name} · {dealer['tier']} │ {stage} │ {sc} │ AI: {self.brain.short_label()}"
         else:
             t = f" SHELL GAME │ Hot-seat │ Stage {g.stage}/3 │ {bot.name} {bot.wins} – {top.wins} {top.name}"
-        self.put(0, 0, t[:W].ljust(W), self.col("title", curses.A_REVERSE) | curses.A_BOLD)
+        if g.sudden:
+            t += " │ SUDDEN DEATH"
+        tattr = (self.col("flash", curses.A_REVERSE) if g.sudden else self.col("title", curses.A_REVERSE))
+        self.put(0, 0, t[:W].ljust(W), tattr | curses.A_BOLD)
 
         # opponent / player 2
         act1 = g.turn == 1 and g.stage_winner is None
@@ -2247,7 +2374,13 @@ class UI:
                 self.put(8 + k, 3, line, dcol | curses.A_BOLD)
 
         # table
-        self.box(11, 0, 9, LEFT_W, "TABLE", curses.A_DIM)
+        if g.event:
+            e = EVENTS[g.event]
+            ttitle, tt_attr = f"TABLE · {e['icon']} {e['label'].upper()}", self.col("item") | curses.A_BOLD
+        else:
+            ttitle, tt_attr = "TABLE", curses.A_BOLD
+        tborder = (self.col("live") | curses.A_BOLD) if g.sudden else curses.A_DIM
+        self.box(11, 0, 9, LEFT_W, ttitle, tborder, tt_attr)
         if self.aim:
             self.put(12, 2, self.aim[:58], self.col("live") | curses.A_BOLD)
         elif g.stage_winner is None:
@@ -2259,14 +2392,14 @@ class UI:
             self.put(13 + k, 2, line)
         flags = []
         if sawed:
-            flags.append(("‡ SAWED OFF x2", "live"))
+            flags.append(("‡ SAWED OFF", "live"))
         if ov.get("double", g.double):
             flags.append(("‖ DOUBLE LOADED", "item"))
         if ov.get("jammed", g.jammed):
             flags.append(("⊘ JAMMER SET", "blank"))
         for r, (label, ck) in enumerate(flags):
             self.put(13 + r, 46, label, self.col(ck) | curses.A_BOLD)
-        for r, h in enumerate([h for h in g.players[viewer].hints if h[0] >= g.pos][:1]):
+        for h in [h for h in g.players[viewer].hints if h[0] >= g.pos][:1]:
             rng = f"next {h[1] - h[0]}" if h[0] == g.pos else f"#{h[0] - g.pos + 1}-{h[1] - g.pos}"
             self.put(16, 40, f"♠ TAROT {h[2]} live in {rng}"[:22], self.col("item"))
         pos = ov.get("pos", g.pos)
@@ -2295,13 +2428,14 @@ class UI:
         rl = sum(rem)
         self.segs(18, 2, [("LOADED ", curses.A_BOLD), (f"{lv} live ", self.col("live")),
                           (f"{bl} blank", self.col("blank"))])
-        if g.rules["counter"]:
+        if g.counter_on():
             self.segs(18, 28, [("LEFT ", curses.A_BOLD), (f"{rl} live ", self.col("live")),
                                (f"{len(rem) - rl} blank", self.col("blank"))])
             if not ov and g.stage_winner is None and not g.players[viewer].is_ai:
                 self.put(18, 50, f"ODDS {round(100 * g.chance_live(viewer))}% live", self.col("item"))
         else:
-            self.segs(18, 28, [("LEFT ", curses.A_BOLD), ("?  count SPENT", curses.A_DIM)])
+            why = "blackout" if g.event == "blackout" else "count SPENT"
+            self.segs(18, 28, [("LEFT ", curses.A_BOLD), (f"?  {why}", curses.A_DIM)])
 
         # you / player 1
         act0 = g.turn == 0 and g.stage_winner is None
@@ -2325,6 +2459,8 @@ class UI:
             self.put(26, 2, status[:W - 4], self.col("item") | curses.A_BOLD)
         else:
             self.action_bar(g, interactive)
+        if clock:
+            self.draw_clock(clock)
         if self.msg:
             self.put(28, 2, "⚠ " + self.msg[:W - 6], self.col("item"))
         if interactive:
@@ -2363,6 +2499,31 @@ class UI:
             self.put(top + 2, x0 + 2 * k, "▯", curses.A_DIM)
         self.pause(0.3 if skip else 0.7)
 
+    def anim_event(self, g, key):
+        e = EVENTS[key]
+        self.sound("event")
+        self.draw_board(g)
+        for fill in ("░", "▒", "▓", "█"):
+            self.popup([("TABLE EVENT", curses.A_BOLD), "", (fill * 20, self.col("item")), ""], width=44)
+            self.scr.refresh()
+            self.nap(0.09)
+        body = [("TABLE EVENT", curses.A_DIM), "",
+                (f"{e['icon']}  {e['label'].upper()}  {e['icon']}", self.col("item") | curses.A_BOLD), ""]
+        body += wrap(e["desc"], 44)
+        self.popup(body, width=48, battr=self.col("item"), buttons=[("Deal me in", "@ok")])
+        self.scr.refresh()
+        self.pause(3.5)
+
+    def anim_sudden(self, g):
+        self.sound("sudden")
+        for _ in range(2):
+            self.flash(g)
+        self.draw_board(g)
+        self.popup([("SUDDEN DEATH", self.col("live") | curses.A_BOLD), "",
+                    "Both players are on their last charge.", "Healing is off until the stage ends."],
+                   battr=self.col("live"))
+        self.pause(2.2)
+
     def anim_shot(self, g, shooter, target, results, ov, rico):
         s, t = g.players[shooter], g.players[target]
         aimed = shooter if (target == shooter and not rico) else 1 - shooter
@@ -2383,9 +2544,14 @@ class UI:
             if r["jam"]:
                 self.sound("click")
                 self.draw_board(g)
-                self.popup([("⊘ MISFIRE", self.col("blank") | curses.A_BOLD), "",
-                            "A live shell, stopped cold by the Jammer."], battr=self.col("blank"))
-                self.pause(1.1)
+                if r["jam"] == "jammer":
+                    body = [("⊘ JAMMED", self.col("blank") | curses.A_BOLD), "",
+                            "A live shell, stopped cold by the Jammer."]
+                else:
+                    body = [("MISFIRE!", self.col("blank") | curses.A_BOLD), "",
+                            "A live shell... and it fizzles. Lucky."]
+                self.popup(body, battr=self.col("blank"))
+                self.pause(1.2)
             elif r["live"]:
                 self.sound("bang")
                 self.flash(g)
@@ -2489,6 +2655,10 @@ class UI:
             kind = e[0]
             if kind == "load":
                 self.anim_load(g, e[1], e[2])
+            elif kind == "event":
+                self.anim_event(g, e[1])
+            elif kind == "sudden":
+                self.anim_sudden(g)
             elif kind == "shot":
                 self.anim_shot(g, *e[1:])
             elif kind == "private":
@@ -2933,6 +3103,7 @@ class UI:
     def settings(self, brain, config):
         sel, note, note_ck = 1, "", "item"
         prefs = config.prefs
+        cyclers = ("provider", "theme", "sound", "speed", "mouse", "events", "misfires", "clock")
         while True:
             p = brain.provider
             info = PROVIDERS[p]
@@ -2960,7 +3131,16 @@ class UI:
                 if key and src in ("macOS Keychain", "this session only"):
                     rows.append({"kind": "button", "value": "Remove saved key", "tok": "delkey",
                                  "help": "Deletes this provider's key from the Keychain."})
+            clock_label = "Off" if prefs["clock"] == "off" else f"{prefs['clock']} seconds"
             rows += [
+                {"kind": "header", "label": "GAME RULES"},
+                {"kind": "field", "label": "Table events", "value": f"◀ {'On' if prefs['events'] else 'Off'} ▶",
+                 "tok": "events", "help": "Each reload may flip a random event card that bends the rules until "
+                                          "the next reload."},
+                {"kind": "field", "label": "Misfires", "value": f"◀ {'On' if prefs['misfires'] else 'Off'} ▶",
+                 "tok": "misfires", "help": "Live shells have a 5% chance to fizzle, so no shot is ever certain."},
+                {"kind": "field", "label": "Shot clock", "value": f"◀ {clock_label} ▶", "tok": "clock",
+                 "help": "Time limit per decision. Run out and you fire at a random target. Rush Hour forces 10s."},
                 {"kind": "header", "label": "DISPLAY & SOUND"},
                 {"kind": "field", "label": "Theme", "value": f"◀ {THEMES[prefs['theme']]['label']} ▶", "tok": "theme",
                  "help": "Casino (classic reds), Neon (magenta and cyan) or Noir (black and white with red)."},
@@ -2977,9 +3157,9 @@ class UI:
                 sel = min(selectable, key=lambda k: abs(k - sel))
             if self.frame():
                 self.centered(1, "SETTINGS", self.col("item") | curses.A_BOLD)
-                self.box(3, 10, len(rows) + 2, 80, "", curses.A_DIM)
+                self.box(2, 10, len(rows) + 2, 80, "", curses.A_DIM)
                 for k, r in enumerate(rows):
-                    y = 4 + k
+                    y = 3 + k
                     if r["kind"] == "header":
                         self.put(y, 13, f"── {r['label']} ".ljust(72, "─"), self.col("item") | curses.A_BOLD)
                         continue
@@ -2987,15 +3167,15 @@ class UI:
                     if r["kind"] == "field":
                         self.put(y, 13, r["label"], curses.A_BOLD)
                         dim = r["tok"] == "base" and not info.get("edit_base")
-                        self.put(y, 26, f" {r['value']} "[:62], a_sel or (curses.A_DIM if dim else 0))
+                        self.put(y, 28, f" {r['value']} "[:60], a_sel or (curses.A_DIM if dim else 0))
                     else:
-                        self.put(y, 26, f"[ {r['value']} ]", a_sel or (self.col("item") | curses.A_BOLD))
+                        self.put(y, 28, f"[ {r['value']} ]", a_sel or (self.col("item") | curses.A_BOLD))
                     self.hit(y, 12, 76, f"@row:{k}")
-                self.box(22, 10, 5, 80, "HELP", curses.A_DIM)
-                self.put(23, 13, rows[sel]["help"][:74], curses.A_DIM)
+                hy = len(rows) + 4
+                self.box(hy, 10, 4, 80, "", curses.A_DIM)
+                self.put(hy + 1, 13, rows[sel]["help"][:74], curses.A_DIM)
                 if note:
-                    for r, l in enumerate(wrap(note, 74)[:2]):
-                        self.put(24 + r, 13, l, self.col(note_ck) | curses.A_BOLD)
+                    self.put(hy + 2, 13, note[:74], self.col(note_ck) | curses.A_BOLD)
                 self.centered(29, "↑↓ move · Enter select/edit · ←→ change · Esc back", curses.A_DIM)
                 self.scr.refresh()
             k = self.getkey()
@@ -3012,7 +3192,7 @@ class UI:
             if k in ("ESC", "q", "Q"):
                 return
             step = -1 if k == "LEFT" else 1
-            if k in ("LEFT", "RIGHT", "ENTER", " ") and tok in ("provider", "theme", "sound", "speed", "mouse"):
+            if k in ("LEFT", "RIGHT", "ENTER", " ") and tok in cyclers:
                 if tok == "provider":
                     config.data["provider"] = self._cycle(PROVIDER_ORDER, p, step)
                     brain.reset()
@@ -3028,6 +3208,10 @@ class UI:
                 elif tok == "mouse":
                     prefs["mouse"] = not prefs["mouse"]
                     self.apply_mouse()
+                elif tok in ("events", "misfires"):
+                    prefs[tok] = not prefs[tok]
+                elif tok == "clock":
+                    prefs["clock"] = self._cycle(CLOCK_OPTIONS, prefs["clock"], step)
                 config.save()
                 continue
             if k not in ("ENTER", " "):
@@ -3165,16 +3349,50 @@ def item_args(ui, g, i, entry):
     return True, None
 
 
+def time_up(ui, g):
+    ui.clock_deadline = None
+    i = g.turn
+    p = g.players[i]
+    at_self = random.random() < 0.5
+    g.add_log(f"Time's up! {p.name} {g.v(p, 'fire')} blindly.", "live")
+    ui.sound("trap")
+    ui.draw_board(g)
+    ui.popup([("◷ TIME'S UP", ui.col("live") | curses.A_BOLD), "",
+              "Your hand slips. The gun goes off at a random target."], battr=ui.col("live"))
+    ui.pause(1.4)
+    ui.play_events(g, g.shoot(i, at_self))
+
+
 def human_action(ui, g):
     i = g.turn
     p = g.players[i]
+    limit = ui.clock_limit(g)
+    if not limit:
+        ui.clock_deadline = None
+    elif ui.clock_deadline is None:
+        ui.clock_deadline = time.time() + limit
     ctrls = ui.controls(g)
     ui.focus = max(0, min(ui.focus, len(ctrls) - 1))
-    ui.draw_board(g, interactive=True)
-    k = ui.getkey()
+    while True:
+        remaining = (ui.clock_deadline - time.time()) if ui.clock_deadline else None
+        if remaining is not None and remaining <= 0:
+            time_up(ui, g)
+            return None
+        ui.draw_board(g, interactive=True, clock=(remaining, limit) if remaining is not None else None)
+        poll = 150 if (remaining is not None or g.sudden) else None
+        k = ui.getkey(timeout=poll)
+        if k != "TICK":
+            break
     ui.msg = ""
     if k in ("", "RESIZE", "CLICK"):
         return None
+    t0 = time.time()
+
+    def refund():
+        """Dialogs and help screens don't eat the shot clock."""
+        if ui.clock_deadline:
+            ui.clock_deadline += time.time() - t0
+
     n = len(p.items)
     cols = 4 if i == 0 else 3
     act = None
@@ -3209,15 +3427,19 @@ def human_action(ui, g):
         act = ("btn", "opp")
     elif k in ("?", "@help"):
         ui.help_screen()
+        refund()
     elif k in ("i", "I"):
         ui.item_guide()
+        refund()
     elif k in ("q", "Q", "ESC", "@quit"):
         if ui.confirm(g, "Leave the table? This run will be lost."):
             return "quit"
+        refund()
     if not act:
         return None
     kind, val = act
     if kind == "btn":
+        ui.clock_deadline = None
         ui.play_events(g, g.shoot(i, val == "self"))
         return None
     entry = p.items[val]
@@ -3226,10 +3448,12 @@ def human_action(ui, g):
         ui.msg = msg
         return None
     ok, arg = item_args(ui, g, i, entry)
+    refund()
     if not ok:
         return None
     ok, msg, ev = g.use_item(i, entry, arg)
     if ok:
+        ui.clock_deadline = None
         ui.play_events(g, ev)
     else:
         ui.msg = msg
@@ -3292,6 +3516,7 @@ def stage_over(ui, g, config):
 
 
 def run_game(ui, brain, config, mode, dealer_key=None):
+    opts = {"events": config.prefs["events"], "misfires": config.prefs["misfires"]}
     if mode == "hotseat":
         n1 = ui.text_input("PLAYER 1 NAME", "Player 1", maxlen=12)
         if n1 is None:
@@ -3299,11 +3524,11 @@ def run_game(ui, brain, config, mode, dealer_key=None):
         n2 = ui.text_input("PLAYER 2 NAME", "Player 2", maxlen=12)
         if n2 is None:
             return
-        g = Game("hotseat", [n1 or "Player 1", n2 or "Player 2"], vs_ai=False)
+        g = Game("hotseat", [n1 or "Player 1", n2 or "Player 2"], vs_ai=False, opts=opts)
     elif mode == "duel":
-        g = Game("duel", ["You", DEALERS[dealer_key]["name"]], vs_ai=True, dealer_key=dealer_key)
+        g = Game("duel", ["You", DEALERS[dealer_key]["name"]], vs_ai=True, dealer_key=dealer_key, opts=opts)
     else:
-        g = Game("gauntlet", ["You", "?"], vs_ai=True)
+        g = Game("gauntlet", ["You", "?"], vs_ai=True, opts=opts)
     brain.reset()
     ui.new_game()
     ui.wipe()
@@ -3315,17 +3540,21 @@ def run_game(ui, brain, config, mode, dealer_key=None):
                 return
             ui.speech = ""
             ui.focus = 0
+            ui.clock_deadline = None
             ui.wipe()
             ui.play_events(g, g.start_stage())
             last = None
             continue
         if g.needs_reload:
+            ui.clock_deadline = None
             ui.play_events(g, g.reload())
             continue
         if not g.vs_ai and g.turn != last:
+            ui.clock_deadline = None
             ui.handover(g)
         last = g.turn
         if g.cur().is_ai:
+            ui.clock_deadline = None
             ai_turn(ui, g, brain)
             continue
         if g.pending_tip:
