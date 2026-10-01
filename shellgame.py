@@ -14,7 +14,8 @@ and choose a model. Environment variables also work:
 GEMINI_API_KEY / GOOGLE_API_KEY, SLEEPYAI_API_KEY.
 
 Python 3.8+, standard library only. Terminal must be at least 100x30.
-Settings: ~/.shellgame_config.json    High scores: ~/.shellgame_scores.json
+Files: ~/.shellgame_config.json (settings) · ~/.shellgame_scores.json (high scores)
+       ~/.shellgame_stats.json (career stats and achievements)
 """
 import curses
 import getpass
@@ -47,8 +48,9 @@ MAX_ITEMS = 8
 API_TIMEOUT = 25
 CONFIG_FILE = os.path.expanduser("~/.shellgame_config.json")
 SCORE_FILE = os.path.expanduser("~/.shellgame_scores.json")
+STATS_FILE = os.path.expanduser("~/.shellgame_stats.json")
 KEYCHAIN_SERVICE = "shellgame"
-USER_AGENT = "ShellGame/3.4 (+terminal game)"
+USER_AGENT = "ShellGame/3.5 (+terminal game)"
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 SOUND_DIR = "/System/Library/Sounds"
 SOUNDS = {"bang": "Basso", "click": "Tink", "load": "Pop", "item": "Morse", "win": "Hero",
@@ -235,6 +237,7 @@ ITEMS = {
                     "Rewind a live shell you just survived, then point it at your opponent."),
 }
 ITEM_KEYS = list(ITEMS)
+USABLE_ITEMS = [k for k in ITEM_KEYS if k != "charm"]
 CLASSIC_KEYS = ["loupe", "rack", "saw", "shackles", "tonic"]
 DECOY_FORMS = ["tonic", "loupe", "saw", "vest", "rack"]
 STANDARD_POOL = {k: v["weight"] for k, v in ITEMS.items()}
@@ -267,6 +270,10 @@ def flush_input():
         curses.flushinp()
     except curses.error:
         pass
+
+
+def pct(a, b):
+    return f"{round(100 * a / b)}%" if b else "–"
 
 
 GENERIC_EYES = {"idle": "(o) (o)", "hurt": "(x) (x)", "grin": "(^) (^)", "think": "(-) (o)", "dead": "(+) (+)",
@@ -430,6 +437,145 @@ LIAR_SAYS_BLANK = ["Relax, it's a blank. Go on, treat yourself to an extra turn.
                    "Nothing in that one but air. Honest.",
                    "Blank. I'd put it to your own head: free turn."]
 
+
+# ═════════════════════════════ achievements ═════════════════════════════
+def _beat(d, dk):
+    return d["dealers"].get(dk, {}).get("won", 0) >= 1
+
+
+def _ach(aid, name, desc, check, progress=None):
+    return {"id": aid, "name": name, "desc": desc, "check": check, "progress": progress}
+
+
+ACHIEVEMENTS = [
+    _ach("first_blood", "First Blood", "Win your first duel.",
+         lambda g, r, d, won: won and g.mode == "duel"),
+    _ach("cooked_books", "Cooked the Books", "Beat the Accountant in a duel.",
+         lambda g, r, d, won: _beat(d, "accountant")),
+    _ach("house_money", "House Money", "Beat the Gambler in a duel.",
+         lambda g, r, d, won: _beat(d, "gambler")),
+    _ach("lie_detector", "Lie Detector", "Beat the Liar in a duel.",
+         lambda g, r, d, won: _beat(d, "liar")),
+    _ach("break_bank", "Breaking the Bank", "Beat the Croupier in a duel.",
+         lambda g, r, d, won: _beat(d, "croupier")),
+    _ach("full_house", "Full House", "Beat all four dealers in duels.",
+         lambda g, r, d, won: all(_beat(d, k) for k in DEALER_ORDER),
+         lambda d: f"{sum(_beat(d, k) for k in DEALER_ORDER)}/4 dealers beaten"),
+    _ach("old_school", "Old School", "Win a Classic duel against the Dealer.",
+         lambda g, r, d, won: won and g.classic and g.vs_ai),
+    _ach("daily_grind", "Daily Grind", "Win a Daily challenge.",
+         lambda g, r, d, won: won and bool(g.seed)),
+    _ach("iron_will", "Iron Will", "Clear 5 stages in one Gauntlet run.",
+         lambda g, r, d, won: g.mode == "gauntlet" and r["stages_won"] >= 5,
+         lambda d: f"best run: {d['best_gauntlet']} stages"),
+    _ach("unbreakable", "Unbreakable", "Clear 10 stages in one Gauntlet run.",
+         lambda g, r, d, won: g.mode == "gauntlet" and r["stages_won"] >= 10,
+         lambda d: f"best run: {d['best_gauntlet']} stages"),
+    _ach("masochist", "Masochist", "Win a run with 2 or more mutators switched on.",
+         lambda g, r, d, won: won and len(g.mutators) >= 2),
+    _ach("high_roller", "High Roller", "Reach 20,000 points in a single run.",
+         lambda g, r, d, won: r["peak_score"] >= 20000,
+         lambda d: f"best: {d['best_score']:,}"),
+    _ach("by_a_thread", "By a Thread", "Win a stage on your very last charge.",
+         lambda g, r, d, won: bool(r["last_charge"])),
+    _ach("untouchable", "Untouchable", "Win a stage without losing a single charge.",
+         lambda g, r, d, won: bool(r["flawless"])),
+    _ach("bare_hands", "Bare Hands", "Win a stage without using any items.",
+         lambda g, r, d, won: bool(r["bare_hands"])),
+    _ach("nerves", "Nerves of Steel", "Shoot yourself with 3 blanks in a row.",
+         lambda g, r, d, won: r["max_blank_streak"] >= 3),
+    _ach("polygraph", "Polygraph", "Catch the Liar lying 3 times in one stage.",
+         lambda g, r, d, won: r["max_caught"] >= 3),
+    _ach("double_tap", "Double Tap", "Hit with both shells of a Double.",
+         lambda g, r, d, won: bool(r["double_tap"])),
+    _ach("clean_cut", "Clean Cut", "Knock out a dealer with a sawed-off shot.",
+         lambda g, r, d, won: bool(r["saw_finish"])),
+    _ach("return_sender", "Return to Sender", "A dealer's shot ricochets and knocks him out.",
+         lambda g, r, d, won: bool(r["ricochet_finish"])),
+    _ach("lucky_break", "Lucky Break", "Your Charm saves you from a lethal hit.",
+         lambda g, r, d, won: bool(r["charm_save"])),
+    _ach("gift_receipt", "Gift Receipt", "A dealer gets hurt by a rigged Decoy.",
+         lambda g, r, d, won: bool(r["decoy_hit"])),
+    _ach("devils_due", "Devil's Due", "Sign a Pact and go on to win that stage.",
+         lambda g, r, d, won: bool(r["pact_win"])),
+    _ach("last_man", "Last Man Standing", "Win a stage that went to sudden death.",
+         lambda g, r, d, won: bool(r["sudden_win"])),
+    _ach("dud", "Dud", "Survive a live shell to your own head thanks to a misfire.",
+         lambda g, r, d, won: bool(r["misfire_saved"])),
+    _ach("clean_audit", "Clean Audit", "Get audited by the Accountant and still win the stage.",
+         lambda g, r, d, won: bool(r["audit_win"])),
+    _ach("tilt_master", "Tilt Master", "Tilt dealers 10 times in total.",
+         lambda g, r, d, won: d["totals"].get("tilts", 0) >= 10,
+         lambda d: f"{d['totals'].get('tilts', 0)}/10 tilts"),
+    _ach("collector", "Collector", "Use every one of the 24 usable items at least once.",
+         lambda g, r, d, won: all(d["items"].get(k, 0) for k in USABLE_ITEMS),
+         lambda d: f"{sum(1 for k in USABLE_ITEMS if d['items'].get(k))}/{len(USABLE_ITEMS)} items used"),
+    _ach("trigger_happy", "Trigger Happy", "Fire 250 shots in total.",
+         lambda g, r, d, won: d["totals"].get("shots", 0) >= 250,
+         lambda d: f"{d['totals'].get('shots', 0)}/250 shots"),
+    _ach("veteran", "Veteran", "Finish 50 runs against the dealers.",
+         lambda g, r, d, won: d["runs"] >= 50,
+         lambda d: f"{d['runs']}/50 runs"),
+]
+
+
+class Career:
+    """Lifetime stats and achievements. path=None keeps everything in memory (used by the self-test)."""
+
+    TOTALS = ("shots", "hits", "dmg_dealt", "dmg_taken", "self_blanks", "bluffs_called", "bluffs_caught",
+              "tilts", "stages_won")
+
+    def __init__(self, path=STATS_FILE):
+        self.path = path
+        d = load_json(path) if path else {}
+        for k, t in (("modes", dict), ("dealers", dict), ("totals", dict), ("items", dict), ("achievements", dict)):
+            if not isinstance(d.get(k), t):
+                d[k] = t()
+        for k in ("runs", "wins", "best_score", "best_gauntlet", "hotseat"):
+            if not isinstance(d.get(k), int):
+                d[k] = 0
+        self.data = d
+
+    def save(self):
+        if self.path:
+            save_json(self.path, self.data)
+
+    def unlocked(self):
+        return sum(1 for a in ACHIEVEMENTS if a["id"] in self.data["achievements"])
+
+    def record_hotseat(self):
+        self.data["hotseat"] += 1
+        self.save()
+
+    def record_run(self, g, won):
+        """Merge a finished run into the career. Returns newly unlocked achievements."""
+        d, r = self.data, g.run
+        d["runs"] += 1
+        d["wins"] += int(won)
+        m = d["modes"].setdefault(g.mode_key(), {"played": 0, "won": 0})
+        m["played"] += 1
+        m["won"] += int(won)
+        if g.mode == "duel" and g.dealer_key:
+            dd = d["dealers"].setdefault(g.dealer_key, {"played": 0, "won": 0})
+            dd["played"] += 1
+            dd["won"] += int(won)
+        for k in self.TOTALS:
+            d["totals"][k] = d["totals"].get(k, 0) + r[k]
+        for k, v in r.items():
+            if k.startswith("item:"):
+                d["items"][k[5:]] = d["items"].get(k[5:], 0) + v
+        d["best_score"] = max(d["best_score"], r["peak_score"], g.score)
+        if g.mode == "gauntlet":
+            d["best_gauntlet"] = max(d["best_gauntlet"], r["stages_won"])
+        new = []
+        for a in ACHIEVEMENTS:
+            if a["id"] not in d["achievements"] and a["check"](g, r, d, won):
+                d["achievements"][a["id"]] = date.today().isoformat()
+                new.append(a)
+        self.save()
+        return new
+
+
 PROVIDERS = {
     "off": {"label": "Off (built-in dealers)", "short": "built-in", "kind": None},
     "gemini": {"label": "Google Gemini", "short": "Gemini", "kind": "gemini",
@@ -584,6 +730,9 @@ class Game:
         self.draft_pool = None
         self.draft_quota = {}
         self.draft_turn = 0
+        self.run = Counter()   # career stats for this run (your side only)
+        self.stg = Counter()   # the same, for the current stage
+        self.stage_closed = False
         self._reset_mind()
 
     def _reset_mind(self):
@@ -611,6 +760,13 @@ class Game:
     @property
     def mult(self):
         return self.rules["mult"] * mutator_mult(self.mutators)
+
+    def mode_key(self):
+        if self.classic:
+            return "classic"
+        if self.seed:
+            return "daily"
+        return self.mode
 
     def score_key(self):
         if self.classic:
@@ -743,6 +899,8 @@ class Game:
         self.stage_winner = None
         self.pending_tip = False
         self.fx = []
+        self.stg = Counter()
+        self.stage_closed = False
         self._reset_mind()
         self.turn = 0 if self.vs_ai else (self.stage - 1) % 2
         intro = f" · {self.players[1].name} sits down" if self.mode == "gauntlet" else ""
@@ -752,6 +910,29 @@ class Game:
             self.bought = []
             self.add_log("You bring from the shop: " + ", ".join(ITEMS[x]["label"] for x in you.items) + ".", "item")
         return self.reload()
+
+    def close_stage(self):
+        """Fold the finished stage into this run's career stats (once per stage)."""
+        if self.stage_closed or self.stage_winner is None or not self.vs_ai:
+            return
+        self.stage_closed = True
+        if self.stage_winner != 0:
+            return
+        self.run["stages_won"] += 1
+        if self.dealer_key:
+            self.run["beat:" + self.dealer_key] += 1
+        if self.players[0].hp == 1:
+            self.run["last_charge"] = 1
+        if not self.stg["taken"]:
+            self.run["flawless"] = 1
+        if not self.stg["items"]:
+            self.run["bare_hands"] = 1
+        if self.stg["pact"]:
+            self.run["pact_win"] = 1
+        if self.stg["audited"]:
+            self.run["audit_win"] = 1
+        if self.stg["sudden"]:
+            self.run["sudden_win"] = 1
 
     def _rng(self):
         """Daily runs derive every load from the date, so everyone gets the same gun and draws."""
@@ -875,6 +1056,7 @@ class Game:
             return []
         if not self.sudden and self.stage_winner is None and all(p.hp == 1 for p in self.players):
             self.sudden = True
+            self.stg["sudden"] = 1
             self.add_log("SUDDEN DEATH: both on 1 charge. Healing is off.", "live")
             return [("sudden",)]
         return []
@@ -928,7 +1110,11 @@ class Game:
         for pl in self.players:
             pl.known[self.pos] = now
         claim = "LIVE" if t["claim"] else "BLANK"
+        self.run["bluffs_called"] += 1
         if lied:
+            self.run["bluffs_caught"] += 1
+            self.stg["caught"] += 1
+            self.run["max_caught"] = max(self.run["max_caught"], self.stg["caught"])
             self.add_log(f"You call the bluff. He said {claim}, and he LIED. He pays 1.", "hp")
             self.award(BLUFF_BONUS)
             self.damage(1, 1)
@@ -977,6 +1163,8 @@ class Game:
             t.items.remove("charm")
             t.hp = 1
             notes.append(f"{self.poss(t)} Charm shatters: 1 charge left")
+            if self.vs_ai and ti == 0:
+                self.run["charm_save"] = 1
         else:
             t.hp = max(0, t.hp - dmg)
         if t.hp <= 0 and self.stage_winner is None:
@@ -985,11 +1173,15 @@ class Game:
         for n in notes:
             self.add_log(n[0].upper() + n[1:] + ".", "item")
         dealt = before - t.hp
+        if self.vs_ai and ti == 0 and dealt > 0:
+            self.stg["taken"] += dealt
+            self.run["dmg_taken"] += dealt
         tilt = (self.dealer or {}).get("tilt")
         if self.vs_ai and ti == 1 and dealt > 0 and self.stage_winner is None:
             self.dealer_hits += 1
             if self.dealer_hits >= 2 and tilt and not self.tilted:
                 self.tilted = True
+                self.run["tilts"] += 1
                 self.add_log(f"{t.name} {self.v(t, 'be')} TILTED. {tilt['line']}", "dealer")
                 self.fx.append(("tilt",))
         return dealt, notes
@@ -1135,6 +1327,12 @@ class Game:
             if arg is None:
                 return False, "Pick something to break.", []
         p.items.remove(entry)
+        if i == 0 and self.vs_ai:
+            self.stg["items"] += 1
+            if not entry.startswith("trap:"):
+                self.run["item:" + b] += 1
+                if b == "pact":
+                    self.stg["pact"] = 1
         if entry.startswith("trap:"):
             ev = self._backfire(i, b)
         else:
@@ -1145,6 +1343,7 @@ class Game:
                 gone = random.choice(p.items)
                 p.items.remove(gone)
                 label = ITEMS[base(gone)]["label"]
+                self.stg["audited"] = 1
                 self.add_log(f"AUDIT! The Accountant confiscates your {label}.", "dealer")
                 self.fx.append(("audit", label))
         return True, "", ev + self._drain() + self.check_sudden()
@@ -1154,7 +1353,9 @@ class Game:
         label = ITEMS[item]["label"]
         self.add_log(f"{p.name} {self.v(p, 'reach')} for the {label}... it was rigged! -1.", "live")
         ev = [("trap", i, label)]
-        self.damage(i, 1)
+        dealt, _ = self.damage(i, 1)
+        if self.vs_ai and i == 1 and dealt > 0:
+            self.run["decoy_hit"] = 1
         return ev
 
     def _apply(self, i, item, arg=None):
@@ -1365,6 +1566,7 @@ class Game:
     # ── shooting
     def shoot(self, i, at_self):
         p = self.players[i]
+        human = self.vs_ai and i == 0
         ov = {"hp": {0: self.players[0].hp, 1: self.players[1].hp}, "pos": self.pos, "sawed": self.sawed,
               "spent": len(self.spent), "double": self.double, "jammed": self.jammed}
         aimed = i if at_self else 1 - i
@@ -1395,6 +1597,8 @@ class Game:
                 elif self.opts["misfires"] and random.random() < MISFIRE_CHANCE:
                     r["jam"] = "misfire"
                     self.add_log("Live shell... and it MISFIRES! A dud.", "blank")
+                    if human and at_self:
+                        self.run["misfire_saved"] = 1
                 else:
                     dealt, notes = self.damage(ti, self.live_damage(first=(n == 0)))
                     r["dmg"], r["notes"] = dealt, notes
@@ -1405,8 +1609,14 @@ class Game:
                         if got:
                             r["notes"].append(f"{p.name} {self.v(p, 'drain')} {got} charge back")
                             self.add_log(f"{p.name} {self.v(p, 'drain')} {got} charge back.", "hp")
-                    if self.vs_ai and i == 0 and ti == 1:
+                    if human and ti == 1:
                         self.award(100 * dealt)
+                        self.run["hits"] += 1
+                        self.run["dmg_dealt"] += dealt
+                        if self.stage_winner == 0 and ov["sawed"] and n == 0:
+                            self.run["saw_finish"] = 1
+                    if self.vs_ai and i == 1 and rico and self.stage_winner == 0:
+                        self.run["ricochet_finish"] = 1
                     if self.vs_ai and i == 1 and ti == 0 and dealt > 0:
                         self.dealer_hits = 0
                         if self.tilted:
@@ -1415,9 +1625,19 @@ class Game:
                             self.fx.append(("calm",))
             else:
                 self.add_log("Click. Blank." + (" Extra turn." if at_self and shots == 1 else ""), "blank")
-                if self.vs_ai and i == 0 and at_self:
+                if human and at_self:
                     self.award(150)
             results.append(r)
+        if human:
+            self.run["shots"] += 1
+            if at_self and results and not fired_live:
+                self.stg["blank_streak"] += 1
+                self.run["self_blanks"] += 1
+                self.run["max_blank_streak"] = max(self.run["max_blank_streak"], self.stg["blank_streak"])
+            else:
+                self.stg["blank_streak"] = 0
+            if len(results) == 2 and ti == 1 and all(r["dmg"] > 0 for r in results):
+                self.run["double_tap"] = 1
         self.sawed = False
         p.leech = False
         if self.blind:
@@ -2230,7 +2450,7 @@ MENU = [
     ("classic", "Classic", "Just the basics: 5 items, no events, no tricks. Vs the Dealer or a friend."),
     ("hotseat", "Hot-seat", "Two players, one keyboard, best of three stages, full rules."),
     ("items", "Item guide", "All 25 items: what they do and when to use them."),
-    ("scores", "High scores", "Your best runs against each dealer, the Gauntlet, Classic and today's daily."),
+    ("career", "Career", f"Lifetime stats, {len(ACHIEVEMENTS)} achievements and every high-score table."),
     ("settings", "Settings", "AI, rules (events, misfires, shot clock, draft), theme, sound, speed."),
     ("help", "How to play", "The rules on one screen."),
     ("quit", "Quit", "Leave the table."),
@@ -2256,6 +2476,7 @@ HELP_TEXT = [
     ("Daily: same shells for everyone today. Mutators multiply your score. Hot-seat: two humans.", False),
     ("Classic: only Loupe, Rack, Saw, Shackles and Tonic, with none of the extra rules.", False),
     ("Item draft (Settings): items are laid face up after each reload and you take turns picking.", False),
+    ("Career (main menu): lifetime stats, achievements and every high-score table.", False),
     ("CONTROLS", True),
     ("←→ select · ↑↓ items/actions · Enter use · 1-8 item · S self · O opponent · C call bluff", False),
     ("? help · I item guide · Q menu. The mouse works too: click items, buttons and dealers.", False),
@@ -3622,6 +3843,152 @@ class UI:
             if k in ("ESC", "q", "Q", "@back"):
                 return None
 
+    # ═════════ career ═════════
+    CAREER_TABS = ("STATS", "ACHIEVEMENTS", "HIGH SCORES")
+
+    def career_screen(self, career):
+        tab, sel = 0, 0
+        n = len(ACHIEVEMENTS)
+        while True:
+            self.draw_career(career, tab, sel)
+            k = self.getkey()
+            if k in ("LEFT", "BTAB"):
+                tab = (tab - 1) % 3
+            elif k in ("RIGHT", "TAB"):
+                tab = (tab + 1) % 3
+            elif k in ("1", "2", "3"):
+                tab = int(k) - 1
+            elif k.startswith("@tab:"):
+                tab = int(k[5:])
+            elif k.startswith("@a:"):
+                tab, sel = 1, int(k[4:]) if k.startswith("@a::") else int(k[3:])
+            elif tab == 1 and k == "UP":
+                sel = (sel - 1) % n
+            elif tab == 1 and k == "DOWN":
+                sel = (sel + 1) % n
+            elif k in ("ESC", "q", "Q", "ENTER"):
+                return
+
+    def draw_career(self, career, tab, sel):
+        if not self.frame():
+            return
+        self.centered(1, "CAREER", self.col("item") | curses.A_BOLD)
+        labels = [self.CAREER_TABS[0], f"{self.CAREER_TABS[1]} {career.unlocked()}/{len(ACHIEVEMENTS)}",
+                  self.CAREER_TABS[2]]
+        texts = [f"[ {k + 1} {lbl} ]" for k, lbl in enumerate(labels)]
+        x = (W - (sum(len(t) for t in texts) + 3 * (len(texts) - 1))) // 2
+        for k, t in enumerate(texts):
+            self.put(2, x, t, self.sel_attr() if k == tab else curses.A_BOLD)
+            self.hit(2, x, len(t), f"@tab:{k}")
+            x += len(t) + 3
+        if tab == 0:
+            self._draw_stats(career)
+        elif tab == 1:
+            self._draw_achievements(career, sel)
+        else:
+            self._draw_scores(4)
+        hint = "←→ / 1-3 switch tab · Esc back"
+        if tab == 1:
+            hint = "↑↓ browse achievements · ←→ / 1-3 switch tab · Esc back"
+        self.centered(29, hint, curses.A_DIM)
+        self.scr.refresh()
+
+    def _draw_stats(self, career):
+        d = career.data
+        t = d["totals"]
+        g0 = lambda k: t.get(k, 0)  # noqa: E731
+        self.box(4, 2, 14, 46, "OVERALL", curses.A_DIM, curses.A_BOLD | self.col("item"))
+        rows = [("Runs finished", f"{d['runs']}"),
+                ("Runs won", f"{d['wins']} ({pct(d['wins'], d['runs'])})"),
+                ("Stages won", f"{g0('stages_won')}"),
+                ("Best score", f"{d['best_score']:,}"),
+                ("Best Gauntlet run", f"{d['best_gauntlet']} stages"),
+                ("Shots fired", f"{g0('shots')}"),
+                ("Live hits on dealers", f"{g0('hits')} ({pct(g0('hits'), g0('shots'))} of shots)"),
+                ("Damage dealt / taken", f"{g0('dmg_dealt')} / {g0('dmg_taken')}"),
+                ("Blanks to your own head", f"{g0('self_blanks')}"),
+                ("Bluffs called / caught", f"{g0('bluffs_called')} / {g0('bluffs_caught')}"),
+                ("Dealers tilted", f"{g0('tilts')}"),
+                ("Hot-seat matches", f"{d['hotseat']}")]
+        for k, (label, value) in enumerate(rows):
+            self.put(5 + k, 4, label, curses.A_DIM)
+            self.put(5 + k, 45 - len(value), value, curses.A_BOLD)
+        self.box(4, 50, 14, 48, "VS THE DEALERS", curses.A_DIM, curses.A_BOLD | self.col("item"))
+        for k, dk in enumerate(DEALER_ORDER + ["classic"]):
+            dd = d["dealers"].get(dk, {})
+            played, won = dd.get("played", 0), dd.get("won", 0)
+            y = 5 + k * 2 + (k > 0) * 0
+            dealer = DEALERS[dk]
+            self.put(y, 52, dealer["name"], self.col(dealer["color"]) | curses.A_BOLD)
+            rate = won / played if played else 0
+            bar = "█" * round(16 * rate) + "░" * (16 - round(16 * rate))
+            self.put(y + 1, 54, bar, self.col("hp") if played else curses.A_DIM)
+            self.put(y + 1, 72, f"{won}/{played} won  {pct(won, played):>4}", 0 if played else curses.A_DIM)
+        self.box(19, 2, 9, 96, "FAVOURITE ITEMS", curses.A_DIM, curses.A_BOLD | self.col("item"))
+        top = sorted(((k, v) for k, v in d["items"].items() if k in ITEMS), key=lambda kv: -kv[1])[:5]
+        if not top:
+            self.put(21, 5, "Use some items against the dealers and your favourites will show up here.", curses.A_DIM)
+        most = top[0][1] if top else 1
+        for k, (it, v) in enumerate(top):
+            info = ITEMS[it]
+            self.put(21 + k, 5, f"{info['icon']} {info['label']}", self.col("item") | curses.A_BOLD)
+            width = max(1, round(60 * v / most))
+            self.put(21 + k, 20, "█" * width, self.col("item"))
+            self.put(21 + k, 82, f"{v:>5} uses", curses.A_DIM)
+
+    def _draw_achievements(self, career, sel):
+        got = career.data["achievements"]
+        half = (len(ACHIEVEMENTS) + 1) // 2
+        for k, a in enumerate(ACHIEVEMENTS):
+            col, row = divmod(k, half)
+            x, y = 2 + col * 49, 4 + row
+            done = a["id"] in got
+            text = f"{'★' if done else '·'} {a['name']}".ljust(46)[:46]
+            if k == sel:
+                attr = self.sel_attr()
+            elif done:
+                attr = self.col("item") | curses.A_BOLD
+            else:
+                attr = curses.A_DIM
+            self.put(y, x, text, attr)
+            self.hit(y, x, 46, f"@a:{k}")
+        a = ACHIEVEMENTS[sel]
+        done = a["id"] in got
+        self.box(21, 2, 6, 96, a["name"].upper(), self.col("item") if done else curses.A_DIM,
+                 curses.A_BOLD | (self.col("item") if done else 0))
+        self.put(22, 5, a["desc"])
+        if done:
+            self.put(23, 5, f"★ Unlocked on {got[a['id']]}", self.col("hp") | curses.A_BOLD)
+        else:
+            self.put(23, 5, "Locked", curses.A_DIM)
+        if a.get("progress"):
+            self.put(24, 5, "Progress: " + a["progress"](career.data), curses.A_DIM)
+
+    def _draw_scores(self, y0):
+        data = load_scores()
+        today = date.today().isoformat()
+        slots = [(f"duel:{dk}", DEALERS[dk]["name"].upper(), DEALERS[dk]["color"]) for dk in DEALER_ORDER]
+        slots += [("gauntlet", "GAUNTLET", "item"), (f"daily:{today}", f"DAILY {today[5:]}", "blank"),
+                  ("classic", "CLASSIC", "blank")]
+        spots = [(y0, 1), (y0, 26), (y0, 51), (y0, 76), (y0 + 12, 1), (y0 + 12, 26), (y0 + 12, 51)]
+        for (key, title, ck), (y, x) in zip(slots, spots):
+            self.box(y, x, 11, 24, title, curses.A_DIM, curses.A_BOLD | self.col(ck))
+            entries = [e for e in data.get(key, []) if isinstance(e, dict)][:9]
+            if not entries:
+                self.put(y + 2, x + 2, "no scores yet", curses.A_DIM)
+            for r, e in enumerate(entries):
+                row = f"{e.get('score', 0):>6} {str(e.get('name', ''))[:8]:<8} {str(e.get('date', ''))[5:]}"
+                self.put(y + 1 + r, x + 2, row[:20], self.col("item") | curses.A_BOLD if r == 0 else 0)
+
+    def show_unlocks(self, g, new):
+        if not new:
+            return
+        title = "ACHIEVEMENT UNLOCKED" if len(new) == 1 else f"{len(new)} ACHIEVEMENTS UNLOCKED"
+        lines = [f"★ {a['name']}: {a['desc']}" for a in new[:6]]
+        if len(new) > 6:
+            lines.append(f"...and {len(new) - 6} more. See Career.")
+        self.banner(g, title, lines, "item")
+
     # ═════════ menu screens ═════════
     def main_menu(self, config, sel):
         tick = 0
@@ -3832,27 +4199,6 @@ class UI:
                 sel = int(k[3:])
             elif k in ("ESC", "q", "Q", "ENTER"):
                 return
-
-    def scores_screen(self):
-        data = load_scores()
-        today = date.today().isoformat()
-        if self.frame():
-            self.centered(1, "HIGH SCORES", self.col("item") | curses.A_BOLD)
-            slots = [(f"duel:{dk}", DEALERS[dk]["name"].upper(), DEALERS[dk]["color"]) for dk in DEALER_ORDER]
-            slots += [("gauntlet", "GAUNTLET", "item"), (f"daily:{today}", f"DAILY {today[5:]}", "blank"),
-                      ("classic", "CLASSIC", "blank")]
-            spots = [(3, 1), (3, 26), (3, 51), (3, 76), (14, 1), (14, 26), (14, 51)]
-            for (key, title, ck), (y, x) in zip(slots, spots):
-                self.box(y, x, 10, 24, title, curses.A_DIM, curses.A_BOLD | self.col(ck))
-                entries = [e for e in data.get(key, []) if isinstance(e, dict)][:7]
-                if not entries:
-                    self.put(y + 2, x + 2, "no scores yet", curses.A_DIM)
-                for r, e in enumerate(entries):
-                    row = f"{e.get('score', 0):>6} {str(e.get('name', ''))[:8]:<8} {str(e.get('date', ''))[5:]}"
-                    self.put(y + 1 + r, x + 2, row[:20], self.col("item") | curses.A_BOLD if r == 0 else 0)
-            self.centered(29, "press any key", curses.A_DIM)
-            self.scr.refresh()
-        self.wait_key()
 
     def help_screen(self):
         if self.frame():
@@ -4259,7 +4605,14 @@ def human_action(ui, g):
     return None
 
 
-def stage_over(ui, g, config):
+def finish_run(ui, g, career, won):
+    if not g.vs_ai:
+        career.record_hotseat()
+        return
+    ui.show_unlocks(g, career.record_run(g, won))
+
+
+def stage_over(ui, g, config, career):
     """Handle the end of a stage. Returns True when the run or match is over."""
     w = g.stage_winner
     if not g.vs_ai:
@@ -4269,10 +4622,12 @@ def stage_over(ui, g, config):
         tally = f"{a.name} {a.wins} – {b.wins} {b.name}"
         if wp.wins >= 2:
             ui.banner(g, f"{wp.name.upper()} WINS THE MATCH", [tally], "hp")
+            finish_run(ui, g, career, True)
             return True
         ui.banner(g, f"{wp.name.upper()} TAKES STAGE {g.stage}", [tally], "item")
         return False
 
+    g.close_stage()
     dname = g.players[1].name
     tag = g.run_tag()
     if w == 1:
@@ -4284,6 +4639,7 @@ def stage_over(ui, g, config):
             best = record_score(g.score_key(), g.score, f"died in stage {g.stage}{tag}")
             ui.banner(g, "YOU DIED", [f"{dname} wins in stage {g.stage}. Score: {g.score}",
                                       "New high score!" if best else ""], "live")
+        finish_run(ui, g, career, False)
         return True
 
     pts = g.award(1000 * g.stage)
@@ -4292,14 +4648,17 @@ def stage_over(ui, g, config):
         g.score *= 2
         g.double_pending = False
         note = "Double or nothing paid off: score doubled!"
+    g.run["peak_score"] = max(g.run["peak_score"], g.score)
     if g.mode == "duel" and g.stage >= 3:
         g.award(2000)
+        g.run["peak_score"] = max(g.run["peak_score"], g.score)
         best = record_score(g.score_key(), g.score, f"won{tag}")
         title = "DAILY CHALLENGE BEATEN" if g.seed else f"YOU BEAT {dname.upper()}"
         ui.banner(g, title, [note, f"Final score: {g.score}", "New high score!" if best else ""], "hp")
         if not g.classic and g.dealer_key != "croupier" and config.unlock("croupier"):
             ui.banner(g, "THE CROUPIER WILL SEE YOU NOW",
                       ["A new dealer is waiting at the table.", "Pick him from the Duel menu."], "live")
+        finish_run(ui, g, career, True)
         return True
     ui.banner(g, f"STAGE {g.stage} CLEARED", [f"+{pts} points. {note}".strip(), f"Score: {g.score}"], "hp")
     if g.mode == "gauntlet":
@@ -4311,12 +4670,13 @@ def stage_over(ui, g, config):
             best = record_score("gauntlet", g.score, f"cashed out after stage {g.stage}{tag}")
             ui.banner(g, "CASHED OUT", [f"You walk away with {g.score} points.",
                                         "New high score!" if best else ""], "item")
+            finish_run(ui, g, career, True)
             return True
         g.double_pending = True
     return False
 
 
-def run_game(ui, brain, config, mode, dealer_key=None, daily=None, classic=False):
+def run_game(ui, brain, config, career, mode, dealer_key=None, daily=None, classic=False):
     prefs = config.prefs
     opts = {"events": prefs["events"], "misfires": prefs["misfires"], "draft": prefs["draft"]}
     if classic:
@@ -4350,7 +4710,7 @@ def run_game(ui, brain, config, mode, dealer_key=None, daily=None, classic=False
     last = None
     while True:
         if g.stage_winner is not None:
-            if stage_over(ui, g, config):
+            if stage_over(ui, g, config, career):
                 return
             ui.speech = ""
             ui.focus = 0
@@ -4382,6 +4742,7 @@ def run_game(ui, brain, config, mode, dealer_key=None, daily=None, classic=False
 
 def main(scr, offline=False):
     config = Config()
+    career = Career()
     brain = Brain(config, offline)
     ui = UI(scr, config)
     ui.brain = brain
@@ -4393,25 +4754,25 @@ def main(scr, offline=False):
         if action == "duel":
             dk = ui.pick_dealer(config)
             if dk:
-                run_game(ui, brain, config, "duel", dk)
+                run_game(ui, brain, config, career, "duel", dk)
         elif action == "fight":
-            run_game(ui, brain, config, "duel", extra)
+            run_game(ui, brain, config, career, "duel", extra)
         elif action == "daily":
             daily = ui.daily_screen(config)
             if daily:
-                run_game(ui, brain, config, "duel", daily=daily)
+                run_game(ui, brain, config, career, "duel", daily=daily)
         elif action == "classic":
             choice = ui.classic_menu()
             if choice == "ai":
-                run_game(ui, brain, config, "duel", "classic", classic=True)
+                run_game(ui, brain, config, career, "duel", "classic", classic=True)
             elif choice == "hotseat":
-                run_game(ui, brain, config, "hotseat", classic=True)
+                run_game(ui, brain, config, career, "hotseat", classic=True)
         elif action in ("gauntlet", "hotseat"):
-            run_game(ui, brain, config, action)
+            run_game(ui, brain, config, career, action)
         elif action == "items":
             ui.item_guide()
-        elif action == "scores":
-            ui.scores_screen()
+        elif action == "career":
+            ui.career_screen(career)
         elif action == "settings":
             ui.settings(brain, config)
         elif action == "help":
@@ -4494,6 +4855,9 @@ def check_invariants(g):
         fail("Classic mode switched on an extra rule")
     if g.stage_winner is None and not g.needs_reload and g.draft_pool is None and g.left() <= 0:
         fail("a turn began with an empty gun")
+    for k, v in g.run.items():
+        if v < 0:
+            fail(f"career counter {k} went negative")
 
 
 def sim_arg(g, i, item):
@@ -4541,18 +4905,27 @@ def sim_decision(g, i, stats):
 
 
 def sim_stage_over(g):
+    """Mirror of stage_over() without the UI. Returns (run over?, won?)."""
     w = g.stage_winner
     if not g.vs_ai:
         g.players[w].wins += 1
-        return g.players[w].wins >= 2
+        return g.players[w].wins >= 2, True
+    g.close_stage()
     if w == 1:
-        return True
+        if g.mode == "gauntlet":
+            g.score = 0
+        return True, False
     g.award(1000 * g.stage)
     if g.double_pending:
         g.score *= 2
         g.double_pending = False
+    g.run["peak_score"] = max(g.run["peak_score"], g.score)
     if g.mode == "duel":
-        return g.stage >= 3
+        if g.stage >= 3:
+            g.award(2000)
+            g.run["peak_score"] = max(g.run["peak_score"], g.score)
+            return True, True
+        return False, False
     for k in random.sample(list(PERKS), len(PERKS)):
         if g.perks.get(k, 0) < PERKS[k]["max"] and g.score >= PERKS[k]["cost"] and random.random() < 0.4:
             g.score -= PERKS[k]["cost"]
@@ -4564,12 +4937,12 @@ def sim_stage_over(g):
             g.score -= price
             g.bought.append(it)
     if g.stage >= g.sim_max_stages:
-        return True
+        return True, True
     g.double_pending = True
-    return False
+    return False, False
 
 
-def sim_game(seed, ui, stats, holder):
+def sim_game(seed, ui, stats, holder, career):
     random.seed(seed)
     scenario = random.choice(["duel", "duel", "gauntlet", "daily", "classic", "classic_hot", "hotseat"])
     opts = {"events": random.random() < 0.85, "misfires": random.random() < 0.85,
@@ -4590,7 +4963,7 @@ def sim_game(seed, ui, stats, holder):
         g = Game("hotseat", ["Ann", "Bo"], False, opts={"classic": True})
     else:
         g = Game("hotseat", ["Ann", "Bo"], False, opts=opts)
-    g.sim_max_stages = random.randint(2, 8)
+    g.sim_max_stages = random.randint(2, 11)
     holder["g"], holder["scenario"] = g, scenario
     stats["scenario:" + scenario] += 1
 
@@ -4624,7 +4997,15 @@ def sim_game(seed, ui, stats, holder):
             raise SimError("game never ended (5000+ actions)")
         check_invariants(g)
         if g.stage_winner is not None:
-            if sim_stage_over(g):
+            over, won = sim_stage_over(g)
+            if over:
+                if g.vs_ai:
+                    new = career.record_run(g, won)
+                    stats["achievements unlocked"] += len(new)
+                    if ui:
+                        ui.show_unlocks(g, new)
+                else:
+                    career.record_hotseat()
                 return
             handle(g.start_stage())
             stats["stages"] += 1
@@ -4686,6 +5067,7 @@ def run_selftest(games=2000, base_seed=None, only=None):
     base_seed = int(time.time()) % 100000 if base_seed is None else base_seed
     config = Config()
     brain = Brain(config, offline=True)
+    career = Career(path=None)  # in memory only: the self-test never touches your real stats
     ui = UI(FakeScreen(), config, headless=True)
     ui.brain = brain
     seeds = [only] if only is not None else [base_seed + n for n in range(games)]
@@ -4700,7 +5082,7 @@ def run_selftest(games=2000, base_seed=None, only=None):
         if render:
             ui.new_game()
         try:
-            sim_game(s, ui if render else None, stats, holder)
+            sim_game(s, ui if render else None, stats, holder, career)
             stats["games passed"] += 1
         except Exception as e:  # noqa: BLE001 - that's the point of the test
             g = holder.get("g")
@@ -4710,6 +5092,14 @@ def run_selftest(games=2000, base_seed=None, only=None):
         if n % step == 0 and only is None:
             sys.stdout.write("." if not failures else "!")
             sys.stdout.flush()
+    try:
+        for tab in range(3):
+            for sel in (0, len(ACHIEVEMENTS) - 1, random.randrange(len(ACHIEVEMENTS))):
+                ui.draw_career(career, tab, sel)
+        stats["career screens drawn"] += 9
+    except Exception as e:  # noqa: BLE001
+        failures.append({"seed": "-", "scenario": "career screen", "error": f"{type(e).__name__}: {e}",
+                         "trace": traceback.format_exc(), "log": []})
     elapsed = time.time() - t0
     if only is None:
         print()
@@ -4727,9 +5117,13 @@ def run_selftest(games=2000, base_seed=None, only=None):
     print(f"Items:     {group('item:')}")
     print(f"Events:    {group('event:')}")
     print(f"Tables:    {group('table:')}")
-    print(f"UI:        {stats['boards drawn']:,} boards drawn on a fake screen · "
-          f"{stats['fuzzed AI replies']:,} garbage AI replies checked · "
+    print(f"UI:        {stats['boards drawn']:,} boards and {stats['career screens drawn']} career screens drawn on "
+          f"a fake screen · {stats['fuzzed AI replies']:,} garbage AI replies checked · "
           f"{stats['refused item uses']:,} item uses correctly refused")
+    got = [a["name"] for a in ACHIEVEMENTS if a["id"] in career.data["achievements"]]
+    missing = [a["name"] for a in ACHIEVEMENTS if a["id"] not in career.data["achievements"]]
+    print(f"Career:    {len(got)}/{len(ACHIEVEMENTS)} achievements reached by the simulated player"
+          + (f" (not reached: {', '.join(missing)})" if missing and only is None else ""))
     unused = [k for k in ITEM_KEYS if not stats["item:" + k]]
     if unused and only is None:
         print(f"Note:      never used: {', '.join(unused)} (run more games for full coverage)")
@@ -4747,10 +5141,13 @@ def run_selftest(games=2000, base_seed=None, only=None):
         frames = [ln for ln in f["trace"].strip().splitlines() if ln.strip().startswith("File")]
         for ln in frames[-3:]:
             print("    " + ln.strip())
-        print("    last log lines:")
-        for ln in f["log"][-6:]:
-            print("      " + ln)
-        print(f"    replay: python3 {os.path.basename(sys.argv[0])} --selftest-game {f['seed']}\n")
+        if f["log"]:
+            print("    last log lines:")
+            for ln in f["log"][-6:]:
+                print("      " + ln)
+        if f["seed"] != "-":
+            print(f"    replay: python3 {os.path.basename(sys.argv[0])} --selftest-game {f['seed']}")
+        print()
     if only is not None:
         print(failures[0]["trace"])
         print("Full log:")
