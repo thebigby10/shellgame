@@ -4696,7 +4696,7 @@ def run_selftest(games=2000, base_seed=None, only=None):
     print("─" * len(header))
     step = max(1, len(seeds) // 50)
     for n, s in enumerate(seeds):
-        render = only is not None or s % 10 == 0
+        render = s % 10 == 0  # same rule on replay, so the random stream matches exactly
         if render:
             ui.new_game()
         try:
